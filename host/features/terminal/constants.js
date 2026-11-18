@@ -82,6 +82,8 @@ export const HISTORY = {
   PER_AGENT_LIMIT: 50,
   DEFAULT_LIMIT: 100,
   CACHE_TTL_MS: 30 * 1000,
+  // Claude Code cuts a project dir name at this length and appends a runtime-dependent hash.
+  CLAUDE_DIR_NAME_MAX: 200,
   // Global search budget: sync scan stops at whichever cap hits first.
   SEARCH_MIN_CHARS: 2,
   SEARCH_QUERY_MAX: 200,

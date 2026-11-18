@@ -139,6 +139,14 @@ function listDir(dir) {
 }
 
 const dashEncode = (cwd) => cwd.replace(/[/\\:]/g, "-");
+// Claude Code dashes every non-alphanumeric char; past the cap its hash suffix is matched by prefix.
+function claudeEncode(cwd) {
+  const name = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  if (name.length <= HISTORY.CLAUDE_DIR_NAME_MAX) return name;
+  const prefix = `${name.slice(0, HISTORY.CLAUDE_DIR_NAME_MAX)}-`;
+  const hit = listDir(path.join(home(), ".claude", "projects")).find((e) => e.isDirectory() && e.name.startsWith(prefix));
+  return hit ? hit.name : prefix;
+}
 const sha256 = (cwd) => crypto.createHash("sha256").update(cwd).digest("hex");
 
 function parseClaude(filePath) {
@@ -412,7 +420,7 @@ function parseOmp(filePath) {
 }
 
 const HISTORY_SOURCES = [
-  { id: "claude", layout: "cwdDir", root: () => path.join(home(), ".claude", "projects"), encode: dashEncode, ext: ".jsonl", parse: parseClaude },
+  { id: "claude", layout: "cwdDir", root: () => path.join(home(), ".claude", "projects"), encode: claudeEncode, ext: ".jsonl", parse: parseClaude },
   { id: "codex", layout: "scan", root: () => path.join(process.env.CODEX_HOME?.trim() || path.join(home(), ".codex"), "sessions"), ext: ".jsonl", parse: parseCodex },
   { id: "opencode", layout: "opencode", root: () => path.join(home(), ".local", "share", "opencode", "storage", "session"), ext: ".json", parse: parseOpencode },
   { id: "qwen-code", layout: "cwdDir", root: () => path.join(home(), ".qwen", "tmp"), encode: sha256, sub: "chats", ext: ".json", parse: parseCwdChats },

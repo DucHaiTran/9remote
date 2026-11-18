@@ -72,6 +72,17 @@ test("claude and droid encode cwd by replacing separators with dashes", () => {
   assert.equal(encodeCwdForAgent("droid", CWD), "-Users-Working-9remote");
 });
 
+test("claude dashes every non-alphanumeric char, as the CLI names its project dir", () => {
+  assert.equal(encodeCwdForAgent("claude", "/media/EXT4_LINUX/00.Projects/my app"), "-media-EXT4-LINUX-00-Projects-my-app");
+});
+
+test("claude matches a capped project dir by its prefix, whatever hash the CLI appended", () => {
+  const longCwd = `/work/${"a".repeat(HISTORY.CLAUDE_DIR_NAME_MAX)}`;
+  const dirName = `${longCwd.replace(/[^a-zA-Z0-9]/g, "-").slice(0, HISTORY.CLAUDE_DIR_NAME_MAX)}-abc123`;
+  mkdirSync(join(home, ".claude", "projects", dirName), { recursive: true });
+  assert.equal(encodeCwdForAgent("claude", longCwd), dirName);
+});
+
 test("grok percent-encodes the cwd", () => {
   assert.equal(encodeCwdForAgent("grok", CWD), "%2FUsers%2FWorking%2F9remote");
 });
