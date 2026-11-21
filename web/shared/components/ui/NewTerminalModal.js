@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft, Plus, Loader2, Globe } from "@/shared/components/ui/Icon";
+import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft, Plus, Loader2, Globe, GitFork } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import transliterate from "@sindresorhus/transliterate";
@@ -10,6 +10,7 @@ import { shortenHomePath, suggestWorktreePath } from "@/features/terminal/lib/wo
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, AGENT_ICON_CLS, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import { isMac } from "@/features/terminal/constants/shortcuts";
+import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
 import { PlainShellGlyph } from "@/features/terminal/components/SessionAgentIcon";
 import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel";
@@ -221,11 +222,23 @@ export default function NewTerminalModal({
   };
   const browserAction = onCreateBrowser !== undefined ? onCreateBrowser : (connected ? defaultCreateBrowser : null);
   const browserOpt = browserAction ? { id: "browser", isBrowser: true, label: t("sites.browserPaneIntroTitle") } : null;
-  const agent = (agentId && allAgents.find((a) => a.id === agentId)) || (agentId === "browser" ? browserOpt : null) || null;
+  // Git Graph is a shortcut, not a launch: desktop raises the right panel's Graph tab,
+  // mobile pushes the git screen on it. Both read the main host's bus, hence main only.
+  const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
+  const graphAction = connected && workspacePath && !modalConn.head ? () => {
+    const term = useTerminalStore.getState();
+    if ((term.activeWorkspaceId ?? null) !== workspaceId) term.setActiveWorkspaceId(workspaceId);
+    if (window.innerWidth >= DESKTOP_BREAKPOINT) setRightPanelTab("graph", workspacePath);
+    else pushView({ type: "git", workspace: cwd || workspacePath, tab: "graph" });
+  } : null;
+  const graphOpt = graphAction ? { id: "gitGraph", isGitGraph: true, label: t("git.openGitGraph") } : null;
+  const agent = (agentId && allAgents.find((a) => a.id === agentId))
+    || (agentId === "browser" ? browserOpt : null)
+    || (agentId === "gitGraph" ? graphOpt : null) || null;
   // Slot 0: Plain terminal (row 1 left)
   // Slot 1: Browser (row 1 right), or the spacer that keeps pairs aligned on the same row
-  // Slot 2+: Claude CLI, Claude UI, then pairs CLI→UI, then CLI-only
-  const options = [null, browserOpt || { empty: true }, ...(claudeCli ? [claudeCli] : []), ...(claudeUi ? [claudeUi] : []), ...sortedPairs, ...cliOnly];
+  // Slot 2+: Claude CLI, Claude UI, then pairs CLI→UI, then CLI-only, Git Graph last
+  const options = [null, browserOpt || { empty: true }, ...(claudeCli ? [claudeCli] : []), ...(claudeUi ? [claudeUi] : []), ...sortedPairs, ...cliOnly, ...(graphOpt ? [graphOpt] : [])];
   const canSkip = !agent?.isAiUi && canSkipPermissions(agent);
   // The agent's own skip-mode token, e.g. --yolo / GOOSE_MODE=auto — null for plain shells
   const skipFlag = agent?.yolo
@@ -267,6 +280,11 @@ export default function NewTerminalModal({
     // Browser is not a terminal launch — it raises the browser pane, nothing else.
     if (picked?.isBrowser) {
       browserAction?.();
+      onClose?.();
+      return;
+    }
+    if (picked?.isGitGraph) {
+      graphAction?.();
       onClose?.();
       return;
     }
@@ -512,7 +530,7 @@ export default function NewTerminalModal({
                 aria-checked={active}
                 tabIndex={active ? 0 : -1}
                 key={a?.id || "__plain"}
-                onClick={() => pick(a)}
+                onClick={() => (a?.isGitGraph ? submit(a) : pick(a))}
                 onDoubleClick={() => submit(a)}
                 onKeyDown={(e) => onGridKey(e, i)}
                 data-picked={active}
@@ -521,7 +539,9 @@ export default function NewTerminalModal({
                   active ? "modal-row-active text-text" : "text-text-muted hover:text-text"
                 }`}
               >
-                {a?.isBrowser ? <Globe size={16} className="text-text" /> : <AgentAvatar agent={a} />}
+                {a?.isBrowser ? <Globe size={16} className="text-text" />
+                  : a?.isGitGraph ? <GitFork size={16} className="text-text" />
+                  : <AgentAvatar agent={a} />}
                 <span className="flex-1 text-sm font-medium truncate">{a ? a.label : t("terminal.plainShell")}</span>
                 {active && (
                   <>

@@ -346,6 +346,7 @@ export default {
     status: "स्थिति",
     diffTab: "अंतर",
     graphTab: "Graph",
+    openGitGraph: "Git Graph",
     graphNoRepo: "No git repository",
     commitDate: "Date",
     switchedTo: "Switched to {name}",

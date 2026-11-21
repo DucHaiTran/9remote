@@ -14,9 +14,9 @@ import DiffBody from "./DiffBody.js";
 import ImageDiffView from "./ImageDiffView.js";
 import { addToGitignore } from "../lib/gitignore.js";
 
-export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
+export default function GitPanel({ workspace, fileBus, onBack, onOpenFile, initialTab = "status" }) {
   const { t } = useI18n();
-  const [activeTab, setActiveTab] = useState("status");
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [statusLoading, setStatusLoading] = useState(true);
   const [diffLoading, setDiffLoading] = useState(false);
   const [error, setError] = useState("");

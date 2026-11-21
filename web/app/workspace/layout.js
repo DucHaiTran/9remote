@@ -1338,6 +1338,7 @@ export default function WorkspaceLayout({ children }) {
           <div className="absolute inset-0 z-30 transition-all duration-300 ease-out screen-in">
             <GitPanel
               workspace={currentView.workspace}
+              initialTab={currentView.tab}
               fileBus={fileBus}
               onBack={popView}
               onOpenFile={handleOpenFile}
