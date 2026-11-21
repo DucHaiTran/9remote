@@ -5,6 +5,7 @@ import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, isImageFile } from "../constants/
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import GitActionsModal from "./GitActionsModal.js";
+import GitGraphView from "./GitGraphView.js";
 import { ChevronLeft, Eye, Trash2, RefreshCw, GitBranch } from "@/shared/components/ui/Icon";
 import FileContextMenu, { FILE_MENU_ICONS } from "@/shared/components/ui/FileContextMenu";
 import { vibrate } from "@/shared/utils/vibration";
@@ -29,6 +30,8 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
   const [ahead, setAhead] = useState(null);
   const [behind, setBehind] = useState(null);
   const [actionsOpen, setActionsOpen] = useState(false);
+  // Bumped by the header refresh so the graph reloads without lifting its state up here.
+  const [graphKey, setGraphKey] = useState(0);
 
   // Load git status
   const loadStatus = useCallback(async () => {
@@ -276,6 +279,9 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
             vibrate();
             if (activeTab === "status") {
               loadStatus();
+            } else if (activeTab === "graph") {
+              setGraphKey((k) => k + 1);
+              loadStatus();
             } else {
               loadDiff(selectedFile, selectedFileStatus);
             }
@@ -311,6 +317,16 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
         >
           {t("git.diffTab")}
         </button>
+        <button
+          onClick={() => { vibrate(); setActiveTab("graph"); }}
+          className={`flex-1 py-3 text-center font-medium transition ${
+            activeTab === "graph"
+              ? "text-text border-b-2 border-brand-500"
+              : "text-text-muted hover:text-text"
+          }`}
+        >
+          {t("git.graphTab")}
+        </button>
       </div>
 
       {/* Error */}
@@ -320,8 +336,21 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
         </div>
       )}
 
+      {/* Graph owns its scroll so the details view and the list keep separate positions. */}
+      {activeTab === "graph" && (
+        <div className="flex-1 min-h-0">
+          <GitGraphView
+            key={graphKey}
+            workspace={workspace}
+            fileBus={fileBus}
+            onShowChanges={() => setActiveTab("status")}
+            onChanged={loadStatus}
+          />
+        </div>
+      )}
+
       {/* Content */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollable">
+      <div className={`flex-1 overflow-y-auto overflow-x-hidden modal-scrollable ${activeTab === "graph" ? "hidden" : ""}`}>
         {activeTab === "status" ? (
           statusLoading ? (
             <div className="flex items-center justify-center h-32 text-text-muted">

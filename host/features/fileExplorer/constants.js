@@ -26,6 +26,13 @@ export const MAX_PREVIEW_SESSIONS = 16;
 export const PREVIEW_NAV_SOURCE = "9remote-preview";
 export const DEFAULT_TREE_DEPTH = 3;
 export const DEFAULT_GIT_LOG_LIMIT = 20;
+// Commit graph paging: one page per request, hard-capped so a client cannot ask for a whole monorepo.
+export const GIT_GRAPH = {
+  PAGE_SIZE: 200,
+  MAX_PAGE_SIZE: 1000,
+  // Bounds the body + file list sent for one commit's details.
+  MAX_COMMIT_FILES: 2000,
+};
 // spawnSync defaults to a 1MB stdout buffer — a whole-repo `git diff` blows past that and
 // comes back truncated (or empty), which reads as "no changes" in the UI.
 export const MAX_GIT_OUTPUT_SIZE = 64 * 1024 * 1024;

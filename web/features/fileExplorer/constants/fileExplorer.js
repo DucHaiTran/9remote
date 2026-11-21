@@ -286,3 +286,16 @@ export const MAX_OPEN_TABS = 5;
 
 // Mobile WebKit crash prevention: limit max image size before explicit opt-in.
 export const IMAGE_RENDER_MAX_BYTES = 4 * 1024 * 1024;
+
+// Commit graph (git panel "Graph" tab). Rows are tall enough to tap on a phone.
+export const GIT_GRAPH_UI = {
+  PAGE_SIZE: 200,
+  ROW_HEIGHT: 48,
+  LANE_WIDTH: 14,
+  // Many lanes squeeze toward this instead of widening the column past GRAPH_MAX_WIDTH.
+  MIN_LANE_WIDTH: 6,
+  GRAPH_MAX_WIDTH: 84,
+  NODE_RADIUS: 4,
+  SHORT_HASH: 7,
+  COLORS: ["#0ea5e9", "#f59e0b", "#10b981", "#ef4444", "#a855f7", "#ec4899", "#14b8a6", "#eab308"],
+};

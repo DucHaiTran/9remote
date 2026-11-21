@@ -217,6 +217,30 @@ export function makeFileBus(getBus, getProtocol = () => null, getLiveBus = getBu
     bus.emit("gitBranchList", { repoPath }, resolve);
   }),
 
+  gitGraph: (repoPath, opts = {}) => new Promise((resolve) => {
+    const bus = getBus();
+    if (!bus) return resolve({ success: false, error: "Not connected" });
+    bus.emit("gitGraph", { repoPath, skip: opts.skip, limit: opts.limit, branch: opts.branch }, resolve);
+  }),
+
+  gitCommitDetails: (repoPath, hash) => new Promise((resolve) => {
+    const bus = getBus();
+    if (!bus) return resolve({ success: false, error: "Not connected" });
+    bus.emit("gitCommitDetails", { repoPath, hash }, resolve);
+  }),
+
+  gitCommitFileDiff: (repoPath, hash, file, oldPath) => new Promise((resolve) => {
+    const bus = getBus();
+    if (!bus) return resolve({ success: false, error: "Not connected" });
+    bus.emit("gitCommitFileDiff", { repoPath, hash, file, oldPath }, resolve);
+  }),
+
+  gitGraphAction: (repoPath, action, params = {}) => new Promise((resolve) => {
+    const bus = getBus();
+    if (!bus) return resolve({ success: false, error: "Not connected" });
+    bus.emit("gitGraphAction", { repoPath, action, ...params }, resolve);
+  }),
+
   gitBranchCheckout: (repoPath, branch, create) => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });

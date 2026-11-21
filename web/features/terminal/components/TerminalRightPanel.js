@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Loader2, Plus, RefreshCw, Search, Trash2, X } from "@/shared/components/ui/Icon";
+import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, History, Loader2, Plus, RefreshCw, Search, Trash2, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import { vibrate } from "@/shared/utils/vibration";
@@ -16,10 +16,12 @@ import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import ExplorerPanel from "@/features/fileExplorer/components/ExplorerPanel";
 import ScmPanel from "@/features/fileExplorer/components/ScmPanel";
+import GitGraphView from "@/features/fileExplorer/components/GitGraphView";
 
 const TABS = [
   { key: "files", icon: Files, labelKey: "workspaces.tabFiles" },
   { key: "git", icon: GitBranch, labelKey: "workspaces.tabGit" },
+  { key: "graph", icon: History, labelKey: "git.graphTab" },
   { key: "trees", icon: GitFork, labelKey: "workspaces.tabTrees" }
 ];
 // TEMP: worktrees tab hidden — removing a worktree lives on each root's header in the files tab
@@ -100,6 +102,8 @@ function TerminalRightPanel({
   // leaving the tab with nothing open; "" stays an explicit "all collapsed".
   const pinnedRepo = gitRepos.some((r) => r.path === openRepo) ? openRepo : undefined;
   const activeRepo = pinnedRepo ?? (openRepo === "" ? null : defaultRepoPath);
+  // The graph always shows one repo: the open one, else the default.
+  const graphRepo = activeRepo || defaultRepoPath;
 
   const hideRepo = (repoPath) => onHiddenReposChange?.([...hiddenRepos, repoPath]);
   // Nested repos only: the workspace root has no relPath, and hiding it would leave this
@@ -436,6 +440,25 @@ function TerminalRightPanel({
               ))}
             </div>
           )
+        ) : activeTab === "graph" ? (
+          <div className="flex-1 min-h-0 flex flex-col">
+            {mainRepos.length + subRepos.length > 1 && (
+              <select
+                value={graphRepo}
+                onChange={(e) => { vibrate(); setOpenRepo(e.target.value); }}
+                className="mx-2 mt-2 px-2 py-1.5 bg-surface-2 rounded-brand text-xs text-text focus:outline-none flex-shrink-0"
+              >
+                {[...mainRepos, ...subRepos].map((r) => <option key={r.path} value={r.path}>{r.relPath || r.name}</option>)}
+              </select>
+            )}
+            {graphRepo ? (
+              <div className="flex-1 min-h-0">
+                <GitGraphView key={graphRepo} workspace={graphRepo} fileBus={activeFileBus} onShowChanges={() => onTabChange("git")} />
+              </div>
+            ) : (
+              <p className="p-4 text-xs text-text-subtle italic">{scanning ? t("common.loading") : t("git.graphNoRepo")}</p>
+            )}
+          </div>
         ) : activeTab === "git" ? (
           <div className="flex-1 min-h-0 flex flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">

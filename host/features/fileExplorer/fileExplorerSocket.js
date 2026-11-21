@@ -1,6 +1,7 @@
 // File Explorer Socket.IO handler
 import { setupFileHandlers } from "./handlers/FileHandler.js";
 import { setupGitHandlers } from "./handlers/GitHandler.js";
+import { setupGitGraphHandlers } from "./handlers/GitGraphHandler.js";
 import { TransferManager } from "./transfer/TransferManager.js";
 import { setupPreviewHandlers } from "./previewServer.js";
 
@@ -8,6 +9,7 @@ import { setupPreviewHandlers } from "./previewServer.js";
 export function setupFileExplorerHandlers(socket) {
   setupFileHandlers(socket);
   setupGitHandlers(socket);
+  setupGitGraphHandlers(socket);
   setupPreviewHandlers(socket);
   setupTransferHandlers(socket);
 }
