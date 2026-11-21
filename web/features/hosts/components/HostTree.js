@@ -440,15 +440,10 @@ export default function HostTree({
             setWsPicker(false);
             if (!folderPath) return;
             // Main-flow parity (layout.js createWorkspaceAt): name from the folder,
-            // recents on this host's scope, then the workspace's first terminal
-            // opens — and auto-switches.
+            // recents on this host's scope; no terminal is opened for it.
             const name = folderPath.split("/").filter(Boolean).pop() || folderPath;
             addRecentWorkspace(folderPath, fleetConn.scope);
-            actions.createWorkspace?.(name, folderPath, (result) => {
-              const ws = result?.workspace || result?.group;
-              if (!result?.success || !ws?.id) return;
-              actions.createSession?.(null, ws.id, null, folderPath);
-            });
+            actions.createWorkspace?.(name, folderPath);
           }}
           onClose={() => setWsPicker(false)}
         />

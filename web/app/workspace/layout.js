@@ -455,10 +455,10 @@ export default function WorkspaceLayout({ children }) {
       const ws = result?.workspace || result?.group;
       if (!result?.success || !ws?.id) return;
       addRecentWorkspace(folderPath, connScope);
+      // Selected, not populated: the user opens its first terminal (or chat) themselves.
       setActiveWorkspaceId(ws.id);
-      nav.handleCreateSession(null, ws.id, null, folderPath);
     });
-  }, [createWorkspace, setActiveWorkspaceId, nav]);
+  }, [createWorkspace, setActiveWorkspaceId, connScope]);
 
   // A path means the user picked a recent folder — skip straight to creating it.
   const openFolderPicker = useCallback((initialPath) => {
