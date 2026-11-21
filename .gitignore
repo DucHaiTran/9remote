@@ -115,4 +115,5 @@ codegraph.json
 
 # Static-export build mirror (scripts/buildWebStatic.mjs)
 web/.staticBuild/
+web/.pagesBuild/
 .claude/skills/*
