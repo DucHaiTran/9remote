@@ -20,6 +20,7 @@ import { useBrowserStore } from "@/shared/stores/browserStore";
 const NO_TABS = [];
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import WorkspaceHeader from "@/features/terminal/components/WorkspaceHeader";
+import { openGitGraph } from "@/features/fileExplorer/lib/openGitGraph";
 import SessionAgentIcon from "@/features/terminal/components/SessionAgentIcon";
 import SessionMeta from "@/features/terminal/components/SessionMeta";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
@@ -234,6 +235,7 @@ export default function HostTree({
                   onToggleCollapse={() => toggleNode(wsKey)}
                   onSelect={actions.selectWorkspace ? () => { vibrate(); actions.selectWorkspace(rawId); } : null}
                   onNewTerminal={actions.createSession ? () => setTermModalWs(wsKey) : null}
+                  onOpenGraph={!fleetConn && workspace?.path ? () => openGitGraph({ workspaceId: rawId, workspacePath: workspace.path }) : null}
                   onAddWorkspace={menuAddWorkspace}
                   onRename={actions.renameWorkspace && rawId != null ? () => setWsRename({ id: rawId, value: workspace.name }) : null}
                   onDelete={actions.deleteWorkspace && rawId != null ? () => setWsDelete({ id: rawId, name: workspace.name }) : null}

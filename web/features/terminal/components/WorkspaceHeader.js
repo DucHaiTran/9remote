@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Folder, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
+import { ChevronRight, Folder, GitFork, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import IconMenu from "@/shared/components/ui/IconMenu";
@@ -23,6 +23,7 @@ export default function WorkspaceHeader({
   workspace, isActive, connected, collapsed, fileBus,
   onToggleCollapse, onSelect, onNewTerminal, onDelete, onRename,
   onAddWorkspace = null,
+  onOpenGraph = null,
   statusMap = null,
   mobile = false
 }) {
@@ -95,6 +96,18 @@ export default function WorkspaceHeader({
       {/* New terminal (+) and "..." — the ExplorerRow door: name runs full width,
           hover floats the cluster over its end with a surface backdrop. */}
       <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1.5 ${mobile ? "opacity-100" : "px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"} transition-opacity`}>
+        {onOpenGraph && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); vibrate(); onOpenGraph(); }}
+            disabled={!connected}
+            className={`${mobile ? "p-1.5" : "p-0.5"} text-text-subtle hover:text-text rounded-[2px] transition-colors disabled:opacity-40`}
+            title={t("git.openGitGraph")}
+            aria-label={t("git.openGitGraph")}
+          >
+            <GitFork size={mobile ? 18 : 13.5} />
+          </button>
+        )}
         {onNewTerminal && (
           <button
             type="button"

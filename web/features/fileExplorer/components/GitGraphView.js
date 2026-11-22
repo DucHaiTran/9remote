@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2 } from "@/shared/components/ui/Icon";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
@@ -11,11 +11,15 @@ import { useI18n } from "@/shared/i18n";
 import { GIT_GRAPH_UI, GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
 import { layoutGraph, UNCOMMITTED_HASH } from "../lib/gitGraphLayout.js";
 import GitCommitDetails from "./GitCommitDetails.js";
+import { readGraphCache, writeGraphCache } from "../lib/gitGraphCache.js";
 
 const { ROW_HEIGHT: H, NODE_RADIUS: R, COLORS } = GIT_GRAPH_UI;
 const MID = H / 2;
 const short = (hash) => hash.slice(0, GIT_GRAPH_UI.SHORT_HASH);
 const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
+// What a refresh compares: same signature means nothing visible changed, so the rows stay put.
+const signatureOf = ({ commits, head, uncommitted, hasMore }) =>
+  `${head?.hash}|${head?.branch}|${uncommitted}|${hasMore}|${commits.map((c) => `${c.hash}:${c.refs.map((r) => r.name).join(",")}`).join(";")}`;
 
 // Lanes keep their full width while they fit the column, then squeeze down to the minimum.
 const laneWidthFor = (lanes) => Math.max(GIT_GRAPH_UI.MIN_LANE_WIDTH, Math.min(GIT_GRAPH_UI.LANE_WIDTH, GIT_GRAPH_UI.GRAPH_MAX_WIDTH / lanes));
@@ -56,17 +60,22 @@ function RefBadge({ refInfo, current }) {
 // details. Long-press (context menu) a row for the commit and branch actions.
 export default function GitGraphView({ workspace, fileBus, onShowChanges, onChanged }) {
   const { t } = useI18n();
-  const [commits, setCommits] = useState([]);
-  const [head, setHead] = useState({ hash: null, branch: null });
-  const [uncommitted, setUncommitted] = useState(0);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // Reopening the last repo's graph starts from its cached view, then refreshes silently.
+  const [cached] = useState(() => readGraphCache(workspace));
+  const [commits, setCommits] = useState(cached?.commits || []);
+  const [head, setHead] = useState(cached?.head || { hash: null, branch: null });
+  const [uncommitted, setUncommitted] = useState(cached?.uncommitted || 0);
+  const [hasMore, setHasMore] = useState(cached?.hasMore || false);
+  const [loading, setLoading] = useState(!cached?.commits);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(null); // { ok, text }
-  const [branchFilter, setBranchFilter] = useState("");
-  const [branches, setBranches] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [branchFilter, setBranchFilter] = useState(cached?.branchFilter || "");
+  const [branches, setBranches] = useState(cached?.branches || []);
+  const [selected, setSelected] = useState(cached?.selected || null);
+  const sigRef = useRef(cached?.commits ? signatureOf(cached) : null);
+  const countRef = useRef(commits.length);
+  useEffect(() => { countRef.current = commits.length; }, [commits.length]);
   const [menu, setMenu] = useState(null); // { hash, x, y }
   const [confirm, setConfirm] = useState({ isOpen: false });
   const [prompt, setPrompt] = useState(null); // { title, value, onSubmit }
@@ -76,11 +85,16 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
   const load = useCallback(() => setReloadTick((n) => n + 1), []);
   useEffect(() => {
     let live = true;
-    fileBus.gitGraph(workspace, { limit: GIT_GRAPH_UI.PAGE_SIZE, branch: branchFilter || undefined }).then((r) => {
+    // Re-read as many commits as are on screen, so a refresh never drops pages the user loaded.
+    const limit = Math.min(GIT_GRAPH_UI.MAX_PAGE_SIZE, Math.max(GIT_GRAPH_UI.PAGE_SIZE, countRef.current));
+    fileBus.gitGraph(workspace, { limit, branch: branchFilter || undefined }).then((r) => {
       if (!live) return;
       setLoading(false);
       if (!r.success) { setError(r.error); return; }
       setError("");
+      const sig = signatureOf(r);
+      if (sig === sigRef.current) return;
+      sigRef.current = sig;
       setCommits(r.commits); setHasMore(r.hasMore); setHead(r.head); setUncommitted(r.uncommitted);
     });
     return () => { live = false; };
@@ -93,6 +107,17 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
     if (!r.success) { setError(r.error); return; }
     setCommits((prev) => [...prev, ...r.commits]); setHasMore(r.hasMore);
   }, [workspace, fileBus, branchFilter, commits.length]);
+
+  useEffect(() => {
+    if (loading) return;
+    writeGraphCache(workspace, { commits, head, uncommitted, hasMore, branchFilter, branches, selected });
+  }, [workspace, loading, commits, head, uncommitted, hasMore, branchFilter, branches, selected]);
+
+  // The list's scroll position survives tab switches and the trip into a commit's details.
+  const listRef = useCallback((el) => {
+    if (el) el.scrollTo({ top: readGraphCache(workspace)?.scrollTop || 0, behavior: "instant" });
+  }, [workspace]);
+  const onListScroll = useCallback((e) => writeGraphCache(workspace, { scrollTop: e.currentTarget.scrollTop }), [workspace]);
 
   useEffect(() => {
     fileBus.gitBranchList(workspace).then((r) => { if (r?.success) setBranches(r.branches); });
@@ -216,7 +241,7 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border flex-shrink-0">
         <select
           value={branchFilter}
-          onChange={(e) => { vibrate(); setLoading(true); setBranchFilter(e.target.value); }}
+          onChange={(e) => { vibrate(); setLoading(true); countRef.current = 0; sigRef.current = null; writeGraphCache(workspace, { scrollTop: 0 }); setBranchFilter(e.target.value); }}
           className="flex-1 min-w-0 px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text focus:outline-none"
         >
           <option value="">{t("git.allBranches")}</option>
@@ -226,7 +251,7 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
       </div>
       {noticeBar}
       {error && <div className="px-4 py-2 text-sm text-red-400 border-b border-red-500/40 bg-red-500/15">{error}</div>}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollable">
+      <div ref={listRef} onScroll={onListScroll} className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollable">
         {loading ? (
           <div className="flex justify-center py-10 text-text-muted"><Loader2 size={20} className="animate-spin" /></div>
         ) : rowsSource.length === 0 ? (

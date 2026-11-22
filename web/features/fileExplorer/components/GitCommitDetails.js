@@ -7,6 +7,7 @@ import { useI18n } from "@/shared/i18n";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import { GIT_STATUS_COLORS, GIT_GRAPH_UI } from "../constants/fileExplorer.js";
 import DiffBody from "./DiffBody.js";
+import { readGraphDetail, writeGraphDetail } from "../lib/gitGraphCache.js";
 
 const short = (hash) => hash.slice(0, GIT_GRAPH_UI.SHORT_HASH);
 const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
@@ -14,26 +15,34 @@ const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
 // One commit: message, people, parents and the files it touched; a file opens its diff.
 export default function GitCommitDetails({ workspace, fileBus, hash, onBack, onSelectCommit, onOpenMenu }) {
   const { t } = useI18n();
-  const [commit, setCommit] = useState(null);
+  // A commit never changes, so a cached one is shown as-is with no refetch.
+  const [cachedCommit] = useState(() => readGraphDetail(workspace, hash));
+  const [commit, setCommit] = useState(cachedCommit || null);
   const [error, setError] = useState("");
   const [file, setFile] = useState(null);
   const [diff, setDiff] = useState(null);
 
   // Mounted per commit (keyed by hash), so state starts empty for each one.
   useEffect(() => {
+    if (cachedCommit) return;
     let live = true;
     fileBus.gitCommitDetails(workspace, hash).then((r) => {
+      if (r.success) writeGraphDetail(workspace, hash, r.commit);
       if (!live) return;
       if (r.success) setCommit(r.commit);
       else setError(r.error);
     });
     return () => { live = false; };
-  }, [workspace, fileBus, hash]);
+  }, [workspace, fileBus, hash, cachedCommit]);
 
   const openFile = useCallback(async (f) => {
     vibrate();
-    setFile(f); setDiff(null);
+    const key = `${hash}:${f.oldPath || ""}:${f.path}`;
+    const hit = readGraphDetail(workspace, key);
+    setFile(f); setDiff(hit ?? null);
+    if (hit !== undefined) return;
     const r = await fileBus.gitCommitFileDiff(workspace, hash, f.path, f.oldPath);
+    if (r.success) writeGraphDetail(workspace, key, r.diff);
     setDiff(r.success ? r.diff : `# ${r.error}`);
   }, [workspace, fileBus, hash]);
 

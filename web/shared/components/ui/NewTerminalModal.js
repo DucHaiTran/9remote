@@ -10,7 +10,7 @@ import { shortenHomePath, suggestWorktreePath } from "@/features/terminal/lib/wo
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, AGENT_ICON_CLS, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import { isMac } from "@/features/terminal/constants/shortcuts";
-import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
+import { openGitGraph } from "@/features/fileExplorer/lib/openGitGraph";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
 import { PlainShellGlyph } from "@/features/terminal/components/SessionAgentIcon";
 import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel";
@@ -224,13 +224,9 @@ export default function NewTerminalModal({
   const browserOpt = browserAction ? { id: "browser", isBrowser: true, label: t("sites.browserPaneIntroTitle") } : null;
   // Git Graph is a shortcut, not a launch: desktop raises the right panel's Graph tab,
   // mobile pushes the git screen on it. Both read the main host's bus, hence main only.
-  const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
-  const graphAction = connected && workspacePath && !modalConn.head ? () => {
-    const term = useTerminalStore.getState();
-    if ((term.activeWorkspaceId ?? null) !== workspaceId) term.setActiveWorkspaceId(workspaceId);
-    if (window.innerWidth >= DESKTOP_BREAKPOINT) setRightPanelTab("graph", workspacePath);
-    else pushView({ type: "git", workspace: cwd || workspacePath, tab: "graph" });
-  } : null;
+  const graphAction = connected && workspacePath && !modalConn.head
+    ? () => openGitGraph({ workspaceId, workspacePath, repoPath: cwd })
+    : null;
   const graphOpt = graphAction ? { id: "gitGraph", isGitGraph: true, label: t("git.openGitGraph") } : null;
   const agent = (agentId && allAgents.find((a) => a.id === agentId))
     || (agentId === "browser" ? browserOpt : null)

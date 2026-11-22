@@ -290,6 +290,9 @@ export const IMAGE_RENDER_MAX_BYTES = 4 * 1024 * 1024;
 // Commit graph (git panel "Graph" tab). Rows are tall enough to tap on a phone.
 export const GIT_GRAPH_UI = {
   PAGE_SIZE: 200,
+  // Host caps one page at 1000 (GIT_GRAPH.MAX_PAGE_SIZE); a silent refresh re-reads what is loaded, up to this.
+  MAX_PAGE_SIZE: 1000,
+  DETAIL_CACHE_MAX: 100,
   ROW_HEIGHT: 48,
   LANE_WIDTH: 14,
   // Many lanes squeeze toward this instead of widening the column past GRAPH_MAX_WIDTH.
