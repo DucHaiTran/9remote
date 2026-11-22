@@ -245,6 +245,10 @@ export const GIT_STATUS_DEBOUNCE_MS = 300;
 // Huge status lists (e.g. unignored build dirs) render in chunks, not all at once.
 export const SCM_RENDER_CHUNK = 200;
 export const SCM_RENDER_STEP = 500;
+// Source Control list layout, remembered per browser.
+export const SCM_VIEW_MODE_KEY = "scmViewMode";
+export const SCM_VIEW_MODES = { LIST: "list", TREE: "tree" };
+export const SCM_TREE_INDENT = 12;
 
 // Window events that mean git state may have moved — the SCM list and open diff tabs listen.
 export const GIT_AUTO_REFRESH_EVENTS = [

@@ -130,7 +130,8 @@ export function setupGitHandlers(socket) {
       } catch {}
 
       const files = [];
-      for (const line of result.trim().split("\n").filter(Boolean)) {
+      // trimEnd only: the first line's leading space is porcelain's X column (" M" = unstaged).
+      for (const line of result.trimEnd().split("\n").filter(Boolean)) {
         const match = line.match(/^([MADRCU?! ]{1,2})\s+(.+)$/);
         if (!match) continue;
         const statusCode = match[1];
@@ -160,7 +161,8 @@ export function setupGitHandlers(socket) {
           } catch {}
         }
 
-        files.push({ status, path: filePath, added: stats.added, deleted: stats.deleted });
+        // index/worktree: porcelain's X and Y columns, so the UI can split staged from unstaged.
+        files.push({ status, path: filePath, added: stats.added, deleted: stats.deleted, index: line[0], worktree: line[1] });
       }
 
       callback({ success: true, files });
@@ -421,14 +423,17 @@ export function setupGitHandlers(socket) {
     }
   });
 
-  socket.on("gitDiscard", ({ repoPath, file, status }, callback) => {
+  socket.on("gitDiscard", ({ repoPath, file, status, keepStaged }, callback) => {
     try {
       if (!file) return callback({ success: false, error: "No file specified" });
       const filePath = path.join(repoPath, file);
 
       if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
 
-      if (status === "?") {
+      if (keepStaged && status !== "?") {
+        // Only the unstaged edits: restore the working copy from the index.
+        runGitSync(["checkout", "--", file], repoPath);
+      } else if (status === "?") {
         if (fs.existsSync(filePath)) {
           const stat = fs.statSync(filePath);
           stat.isDirectory() ? fs.rmSync(filePath, { recursive: true }) : fs.unlinkSync(filePath);

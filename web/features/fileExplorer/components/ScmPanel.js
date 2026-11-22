@@ -1,19 +1,31 @@
 "use client";
 
 import { memo, useState, useEffect, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, GitBranch, Plus, RefreshCw, X, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown, EyeOff } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronRight, GitBranch, Plus, Minus, Undo2, RefreshCw, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown, EyeOff, Folder, FolderOpen, List, ListTree } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
 import { useI18n } from "@/shared/i18n";
 import useIsTouch from "@/shared/hooks/useIsTouch.js";
-import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, GIT_AUTO_REFRESH_EVENTS, GIT_STATUS_DEBOUNCE_MS, SCM_RENDER_CHUNK, SCM_RENDER_STEP, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, GIT_AUTO_REFRESH_EVENTS, GIT_STATUS_DEBOUNCE_MS, SCM_RENDER_CHUNK, SCM_RENDER_STEP, SCM_VIEW_MODE_KEY, SCM_VIEW_MODES, SCM_TREE_INDENT, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import { commitSummary, pushSummary, pullSummary } from "../lib/gitOutput.js";
 import { addToGitignore } from "../lib/gitignore.js";
+import { splitScmFiles, buildScmTree } from "../lib/scmEntries.js";
 
+const SECTION_STAGED = "staged";
 const SECTION_CHANGES = "changes";
 const SECTION_UNTRACKED = "untracked";
+const ROW_PAD_LEFT = 8;
+
+function rowIndent(depth) {
+  return depth ? { paddingLeft: ROW_PAD_LEFT + depth * SCM_TREE_INDENT } : undefined;
+}
+
+function readViewMode() {
+  if (typeof window === "undefined") return SCM_VIEW_MODES.LIST;
+  return window.localStorage?.getItem(SCM_VIEW_MODE_KEY) === SCM_VIEW_MODES.TREE ? SCM_VIEW_MODES.TREE : SCM_VIEW_MODES.LIST;
+}
 
 function basename(p) {
   if (!p) return "";
@@ -38,16 +50,40 @@ function joinPath(base, rel) {
 // row shares one stable identity. Custom comparator: a status reload rebuilds every file
 // object, so identity would defeat memo — compare the data a row actually renders.
 const scmRowPropsEqual = (a, b) =>
-  a.file.path === b.file.path && a.file.status === b.file.status
-  && a.workspace === b.workspace && a.isUntracked === b.isUntracked
+  a.file.path === b.file.path && a.file.status === b.file.status && a.file.hasStaged === b.file.hasStaged
+  && a.workspace === b.workspace && a.section === b.section && a.depth === b.depth
   && a.isTouch === b.isTouch && a.t === b.t;
 
-const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, isTouch, openDiff, onCtxMenu, onDiscard, onStage }) {
+// Hover actions float over the row's tail (VS Code parity): Staged rows offer Unstage,
+// the others Discard + Stage. In list mode the directory follows the name; in tree mode
+// the folder rows above carry it, so `depth` indents instead.
+function RowActions({ isTouch, children }) {
+  return (
+    <div className={`absolute right-[22px] top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 pr-1 bg-surface-2 transition-opacity ${isTouch ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+      {children}
+    </div>
+  );
+}
+
+function RowButton({ title, onClick, children }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(e) => { e.stopPropagation(); vibrate(); onClick(); }}
+      className="p-0.5 text-text-muted hover:text-text"
+    >
+      {children}
+    </button>
+  );
+}
+
+const ScmFileRow = memo(function ScmFileRow({ file, workspace, section, depth, t, isTouch, openDiff, onCtxMenu, onDiscard, onStage, onUnstage }) {
   const colorClass = GIT_STATUS_COLORS[file.status] || "text-text-muted";
-  const absPath = joinPath(workspace, file.path);
   return (
     <div
-      className="group relative flex items-center gap-1.5 px-2 py-1 hover:bg-surface-2 cursor-pointer"
+      className={`group relative flex items-center gap-1.5 px-2 ${isTouch ? "py-2" : "py-1"} hover:bg-surface-2 cursor-pointer`}
+      style={rowIndent(depth)}
       onContextMenu={(e) => onCtxMenu(file, e)}
       onClick={() => {
         vibrate();
@@ -57,35 +93,46 @@ const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, i
       }}
     >
       <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: basename(file.path), path: file.path, type: "file" }, 16)}</span>
-      <span className="truncate text-xs text-text" title={file.path}>{basename(file.path)}</span>
-      <span className="truncate text-[11px] text-text-muted flex-1" title={dirname(file.path)}>{dirname(file.path)}</span>
-      {/* VS Code parity: hover shows only Discard + Stage, floating OVER the directory
-          text (no reserved space — the full row width stays readable when not hovered).
-          Opening the file itself is a context-menu action; the row click opens the diff. */}
-      <div className={`absolute right-[22px] top-1/2 -translate-y-1/2 flex items-center gap-0.5 pl-2 pr-1 bg-surface-2 transition-opacity ${isTouch ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-        <button
-          type="button"
-          title={isUntracked ? t("common.delete") : t("git.discard")}
-          onClick={(e) => { e.stopPropagation(); vibrate(); onDiscard(file); }}
-          className="p-0.5 text-text-muted hover:text-text"
-        >
-          <X size={12} />
-        </button>
-        <button
-          type="button"
-          title={t("git.stage")}
-          onClick={(e) => { e.stopPropagation(); vibrate(); onStage(file); }}
-          className="p-0.5 text-text-muted hover:text-text"
-        >
-          <Plus size={12} />
-        </button>
-      </div>
+      <span className={`truncate text-xs text-text ${depth ? "flex-1" : ""}`} title={file.path}>{basename(file.path)}</span>
+      {!depth && <span className="truncate text-[11px] text-text-muted flex-1" title={dirname(file.path)}>{dirname(file.path)}</span>}
+      <RowActions isTouch={isTouch}>
+        {section === SECTION_STAGED ? (
+          <RowButton title={t("git.unstage")} onClick={() => onUnstage([file.path])}><Minus size={12} /></RowButton>
+        ) : (
+          <>
+            <RowButton title={section === SECTION_UNTRACKED ? t("common.delete") : t("git.discard")} onClick={() => onDiscard(file)}><Undo2 size={12} /></RowButton>
+            <RowButton title={t("git.stage")} onClick={() => onStage([file.path])}><Plus size={12} /></RowButton>
+          </>
+        )}
+      </RowActions>
       <span className={`flex-shrink-0 w-4 h-4 flex items-center justify-center text-[10px] font-mono rounded bg-surface-2 ${colorClass}`}>{file.status}</span>
     </div>
   );
 }, scmRowPropsEqual);
 
-export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRepo = false }) {
+function ScmFolderRow({ node, section, depth, open, t, isTouch, onToggle, onStage, onUnstage }) {
+  return (
+    <div
+      className={`group relative flex items-center gap-1 px-2 ${isTouch ? "py-2" : "py-1"} hover:bg-surface-2 cursor-pointer`}
+      style={rowIndent(depth)}
+      onClick={() => { vibrate(); onToggle(); }}
+    >
+      {open ? <ChevronDown size={12} className="text-text-subtle flex-shrink-0" /> : <ChevronRight size={12} className="text-text-subtle flex-shrink-0" />}
+      {open ? <FolderOpen size={14} className="text-text-muted flex-shrink-0" /> : <Folder size={14} className="text-text-muted flex-shrink-0" />}
+      <span className="truncate text-xs text-text flex-1" title={node.path}>{node.name}</span>
+      <RowActions isTouch={isTouch}>
+        {section === SECTION_STAGED
+          ? <RowButton title={t("git.unstage")} onClick={() => onUnstage(node.paths)}><Minus size={12} /></RowButton>
+          : <RowButton title={t("git.stage")} onClick={() => onStage(node.paths)}><Plus size={12} /></RowButton>}
+      </RowActions>
+      <span className="flex-shrink-0 text-[10px] px-1 rounded-brand bg-surface-3 text-text-muted">{node.paths.length}</span>
+    </div>
+  );
+}
+
+// `onOpenDiff(file)`: show a diff in place (the mobile git screen) instead of opening a diff tab.
+// `onChanged`: called after every status reload, so a host screen can refresh its own copy.
+export default function ScmPanel({ workspace, fileBus, onOpenFile, onOpenDiff, onChanged, tagDiffWithRepo = false }) {
   const { t } = useI18n();
   const isTouch = useIsTouch();
   const [branch, setBranch] = useState("");
@@ -95,7 +142,10 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
   const [commitMsg, setCommitMsg] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null); // { ok, text }
-  const [expandedSections, setExpandedSections] = useState(new Set([SECTION_CHANGES, SECTION_UNTRACKED]));
+  const [expandedSections, setExpandedSections] = useState(new Set([SECTION_STAGED, SECTION_CHANGES, SECTION_UNTRACKED]));
+  const [viewMode, setViewMode] = useState(readViewMode);
+  // Folder open/closed overrides in tree mode, keyed "<section>:<path>".
+  const [dirOpen, setDirOpen] = useState({});
   // Per-section row budget — huge lists (unignored build dirs) mount one chunk, not 3k rows.
   const [visibleCounts, setVisibleCounts] = useState({});
   const [confirmAutoStageOpen, setConfirmAutoStageOpen] = useState(false);
@@ -116,12 +166,13 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
     ]);
     setLoading(false);
     if (statusRes?.success) setFiles(statusRes.files || []);
+    onChanged?.();
     if (branchRes?.success) {
       setBranch(branchRes.branch || "");
       setAhead(branchRes.ahead ?? null);
       setBehind(branchRes.behind ?? null);
     }
-  }, [workspace, fileBus]);
+  }, [workspace, fileBus, onChanged]);
 
   useEffect(() => {
     reload();
@@ -143,14 +194,18 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
     };
   }, [reload]);
 
-  const { changes, untracked } = useMemo(() => {
-    const ch = [];
-    const un = [];
-    for (const f of files) {
-      if (f.status === "?") un.push(f); else ch.push(f);
-    }
-    return { changes: ch, untracked: un };
-  }, [files]);
+  const { staged, changes, untracked } = useMemo(() => splitScmFiles(files), [files]);
+  const trees = useMemo(() => (viewMode === SCM_VIEW_MODES.TREE
+    ? { [SECTION_STAGED]: buildScmTree(staged), [SECTION_CHANGES]: buildScmTree(changes), [SECTION_UNTRACKED]: buildScmTree(untracked) }
+    : null), [viewMode, staged, changes, untracked]);
+
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => {
+      const next = prev === SCM_VIEW_MODES.TREE ? SCM_VIEW_MODES.LIST : SCM_VIEW_MODES.TREE;
+      window.localStorage?.setItem(SCM_VIEW_MODE_KEY, next);
+      return next;
+    });
+  }, []);
 
   const toggleSection = useCallback((id) => {
     setExpandedSections((prev) => {
@@ -160,9 +215,17 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
     });
   }, []);
 
-  const stageFile = useCallback(async (file) => {
-    if (!workspace) return;
-    await fileBus.gitAdd?.(workspace, [file.path]);
+  const stagePaths = useCallback(async (paths) => {
+    if (!workspace || !paths.length) return;
+    const res = await fileBus.gitAdd?.(workspace, paths);
+    if (res && !res.success) setResult({ ok: false, text: res.error || t("git.stageFailed") });
+    reload();
+  }, [workspace, fileBus, reload, t]);
+
+  const unstagePaths = useCallback(async (paths) => {
+    if (!workspace || !paths.length) return;
+    const res = await fileBus.gitReset?.(workspace, paths);
+    if (res && !res.success) setResult({ ok: false, text: res.error });
     reload();
   }, [workspace, fileBus, reload]);
 
@@ -174,7 +237,8 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
 
   const discardFile = useCallback(async (file) => {
     if (!workspace) return;
-    await fileBus.gitDiscard?.(workspace, file.path, file.status);
+    // A file with staged edits keeps them: only its working-copy changes are dropped.
+    await fileBus.gitDiscard?.(workspace, file.path, file.status, { keepStaged: file.hasStaged });
     reload();
   }, [workspace, fileBus, reload]);
 
@@ -184,25 +248,22 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
   }, []);
 
   const openDiff = useCallback((file) => {
+    if (onOpenDiff) return onOpenDiff(file);
     onOpenFile?.(tagDiffWithRepo
       ? makeRepoDiffPath(file.status, workspace, file.path)
       : makeDiffPath(file.status, file.path));
-  }, [onOpenFile, tagDiffWithRepo, workspace]);
+  }, [onOpenFile, onOpenDiff, tagDiffWithRepo, workspace]);
 
-  const handleCommitClick = useCallback((withPush = false) => {
-    if (!commitMsg.trim()) return;
-    if (!files.length) return;
-    setPendingPush(withPush);
-    setConfirmAutoStageOpen(true);
-  }, [commitMsg, files]);
-
-  const confirmAutoStageAndCommit = useCallback(async () => {
+  // Commits what is staged; with nothing staged it offers to stage everything first.
+  const commit = useCallback(async ({ stageAll: addAll, withPush }) => {
     if (!workspace) return;
     setResult(null);
-    const add = await fileBus.gitAdd?.(workspace, ["."]);
-    if (add && !add.success) {
-      setResult({ ok: false, text: add.error || t("git.stageFailed") });
-      return;
+    if (addAll) {
+      const add = await fileBus.gitAdd?.(workspace, ["."]);
+      if (add && !add.success) {
+        setResult({ ok: false, text: add.error || t("git.stageFailed") });
+        return;
+      }
     }
     const res = await fileBus.gitCommit?.(workspace, commitMsg.trim());
     if (!res?.success) {
@@ -211,7 +272,7 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
       return;
     }
     setCommitMsg("");
-    if (!pendingPush) {
+    if (!withPush) {
       setResult({ ok: true, text: commitSummary(t, res.output) });
       reload();
       return;
@@ -221,7 +282,18 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
       ? { ok: true, text: `${commitSummary(t, res.output)} · ${pushSummary(t, pushed.output)}` }
       : { ok: false, text: pushed?.output || pushed?.error || t("git.pushFailed") });
     reload();
-  }, [workspace, fileBus, commitMsg, pendingPush, reload, t]);
+  }, [workspace, fileBus, commitMsg, reload, t]);
+
+  const handleCommitClick = useCallback((withPush = false) => {
+    if (!commitMsg.trim()) return;
+    if (!files.length) return;
+    if (staged.length) {
+      commit({ stageAll: false, withPush });
+      return;
+    }
+    setPendingPush(withPush);
+    setConfirmAutoStageOpen(true);
+  }, [commitMsg, files, staged, commit]);
 
   const handlePush = useCallback(async () => {
     if (!workspace) return;
@@ -287,18 +359,20 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
     ];
   }, [workspace, onOpenFile, copyToClipboard, handleAddToGitignore, t]);
 
-  const renderFileRow = (file, isUntracked) => (
+  const renderFileRow = (file, section, depth = 0) => (
     <ScmFileRow
-      key={`${file.status}-${file.path}`}
+      key={`${section}-${file.path}`}
       file={file}
       workspace={workspace}
-      isUntracked={isUntracked}
+      section={section}
+      depth={depth}
       t={t}
       isTouch={isTouch}
       openDiff={openDiff}
       onCtxMenu={openCtxMenu}
       onDiscard={requestDiscard}
-      onStage={stageFile}
+      onStage={stagePaths}
+      onUnstage={unstagePaths}
     />
   );
 
@@ -306,24 +380,55 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
     setVisibleCounts((prev) => ({ ...prev, [id]: (prev[id] ?? SCM_RENDER_CHUNK) + SCM_RENDER_STEP }));
   }, []);
 
-  const renderSection = (id, label, list, isUntracked) => {
+  // Huge sections (an unignored build dir) start with folders closed so they mount a few rows.
+  const renderTree = (nodes, section, depth, startOpen) => nodes.map((node) => {
+    if (node.type === "file") return renderFileRow(node.entry, section, depth);
+    const key = `${section}:${node.path}`;
+    const open = dirOpen[key] ?? startOpen;
+    return (
+      <div key={key}>
+        <ScmFolderRow
+          node={node}
+          section={section}
+          depth={depth}
+          open={open}
+          t={t}
+          isTouch={isTouch}
+          onToggle={() => setDirOpen((prev) => ({ ...prev, [key]: !open }))}
+          onStage={stagePaths}
+          onUnstage={unstagePaths}
+        />
+        {open && renderTree(node.children, section, depth + 1, startOpen)}
+      </div>
+    );
+  });
+
+  const renderSection = (id, label, list) => {
+    if (id === SECTION_STAGED && !list.length) return null;
     const expanded = expandedSections.has(id);
     const visible = list.slice(0, visibleCounts[id] ?? SCM_RENDER_CHUNK);
     const remaining = list.length - visible.length;
+    const paths = list.map((f) => f.path);
     return (
       <div className="border-t border-border">
-        <button
-          type="button"
+        <div
           onClick={() => { vibrate(); toggleSection(id); }}
-          className="w-full flex items-center gap-1 px-2 py-1 hover:bg-surface-2 text-left"
+          className="group relative w-full flex items-center gap-1 px-2 py-1 hover:bg-surface-2 text-left cursor-pointer"
         >
           {expanded ? <ChevronDown size={12} className="text-text-subtle" /> : <ChevronRight size={12} className="text-text-subtle" />}
-          <span className="text-[11px] uppercase tracking-wider text-text-muted">{label}</span>
-          <span className="text-[10px] px-1.5 ml-auto rounded-brand bg-surface-3 text-text-muted">{list.length}</span>
-        </button>
-        {expanded && (
+          <span className="text-[11px] uppercase tracking-wider text-text-muted flex-1">{label}</span>
+          {list.length > 0 && (
+            <span className={`flex items-center transition-opacity ${isTouch ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+              {id === SECTION_STAGED
+                ? <RowButton title={t("git.unstageAll")} onClick={() => unstagePaths(paths)}><Minus size={12} /></RowButton>
+                : <RowButton title={t("git.stageAll")} onClick={() => stagePaths(paths)}><Plus size={12} /></RowButton>}
+            </span>
+          )}
+          <span className="text-[10px] px-1.5 rounded-brand bg-surface-3 text-text-muted">{list.length}</span>
+        </div>
+        {expanded && (trees ? renderTree(trees[id], id, 1, list.length <= SCM_RENDER_CHUNK) : (
           <>
-            {visible.map((f) => renderFileRow(f, isUntracked))}
+            {visible.map((f) => renderFileRow(f, id))}
             {remaining > 0 && (
               <button
                 type="button"
@@ -334,7 +439,7 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
               </button>
             )}
           </>
-        )}
+        ))}
       </div>
     );
   };
@@ -347,6 +452,14 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
           <span className="text-xs text-text truncate flex-1">{branch || "—"}</span>
           {ahead > 0 && <span className="text-[10px] font-medium px-1.5 rounded-brand bg-brand-500/15 text-brand-500">↑{ahead}</span>}
           {behind > 0 && <span className="text-[10px] font-medium px-1.5 rounded-brand bg-surface-3 text-text-muted">↓{behind}</span>}
+          <button
+            type="button"
+            title={viewMode === SCM_VIEW_MODES.TREE ? t("git.viewAsList") : t("git.viewAsTree")}
+            onClick={() => { vibrate(); toggleViewMode(); }}
+            className="p-1 text-text-muted hover:text-text"
+          >
+            {viewMode === SCM_VIEW_MODES.TREE ? <List size={12} /> : <ListTree size={12} />}
+          </button>
           <button
             type="button"
             title={t("common.refresh")}
@@ -412,14 +525,15 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
       </div>
 
       <div className="flex-1 overflow-auto">
-        {renderSection(SECTION_CHANGES, t("git.changes"), changes, false)}
-        {renderSection(SECTION_UNTRACKED, t("git.untracked"), untracked, true)}
+        {renderSection(SECTION_STAGED, t("git.staged"), staged)}
+        {renderSection(SECTION_CHANGES, t("git.changes"), changes)}
+        {renderSection(SECTION_UNTRACKED, t("git.untracked"), untracked)}
       </div>
 
       <ConfirmDialog
         isOpen={confirmAutoStageOpen}
         onClose={() => setConfirmAutoStageOpen(false)}
-        onConfirm={confirmAutoStageAndCommit}
+        onConfirm={() => commit({ stageAll: true, withPush: pendingPush })}
         title={t("git.stageAllConfirmTitle")}
         message={t("git.stageAllConfirmMessage")}
         confirmText={t("git.stageAndCommit")}

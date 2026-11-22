@@ -112,10 +112,10 @@ export function makeFileBus(getBus, getProtocol = () => null, getLiveBus = getBu
     bus.emit("searchFiles", { workspace, query }, normResolve(resolve));
   }),
 
-  gitDiscard: (repoPath, file, status) => new Promise((resolve) => {
+  gitDiscard: (repoPath, file, status, { keepStaged = false } = {}) => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });
-    bus.emit("gitDiscard", { repoPath, file, status }, resolve);
+    bus.emit("gitDiscard", { repoPath, file, status, keepStaged }, resolve);
   }),
 
   searchInFiles: (workspace, query, options = {}) => new Promise((resolve) => {

@@ -1,23 +1,20 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, isImageFile } from "../constants/fileExplorer.js";
-import { resolveFileIcon } from "../constants/fileIcons.js";
+import { isImageFile } from "../constants/fileExplorer.js";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import GitActionsModal from "./GitActionsModal.js";
 import GitGraphView from "./GitGraphView.js";
+import ScmPanel from "./ScmPanel.js";
 import { ChevronLeft, Eye, Trash2, RefreshCw, GitBranch } from "@/shared/components/ui/Icon";
-import FileContextMenu, { FILE_MENU_ICONS } from "@/shared/components/ui/FileContextMenu";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import DiffBody from "./DiffBody.js";
 import ImageDiffView from "./ImageDiffView.js";
-import { addToGitignore } from "../lib/gitignore.js";
 
 export default function GitPanel({ workspace, fileBus, onBack, onOpenFile, initialTab = "status" }) {
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [statusLoading, setStatusLoading] = useState(true);
   const [diffLoading, setDiffLoading] = useState(false);
   const [error, setError] = useState("");
   const [statusFiles, setStatusFiles] = useState([]);
@@ -35,7 +32,6 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile, initi
 
   // Load git status
   const loadStatus = useCallback(async () => {
-    setStatusLoading(true);
     setError("");
 
     const result = await fileBus.gitStatus(workspace);
@@ -53,7 +49,6 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile, initi
       setBehind(r.behind ?? null);
     });
 
-    setStatusLoading(false);
   }, [workspace, fileBus]);
 
   // Load diff
@@ -85,6 +80,11 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile, initi
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  const openScmDiff = useCallback((file) => {
+    loadDiff(file.path, file.status);
+    setActiveTab("diff");
+  }, [loadDiff]);
 
   // Handle tab switch to diff - load first file if not loaded yet
   const handleSwitchToDiff = useCallback(() => {
@@ -141,114 +141,6 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile, initi
       : `${workspace}/${filePath}`;
     onOpenFile?.(fullPath);
   }, [workspace, onOpenFile]);
-
-  // Right-click context menu
-  const [ctxMenu, setCtxMenu] = useState(null); // { file, x, y }
-  const copyToClipboard = useCallback(async (text) => {
-    try { await navigator.clipboard.writeText(text); } catch {}
-  }, []);
-  const openCtxMenu = useCallback((file, e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    vibrate();
-    setCtxMenu({ file, x: e.clientX, y: e.clientY });
-  }, []);
-  const handleAddToGitignore = useCallback(async (file) => {
-    if (!workspace || !fileBus || !file?.path) return;
-    const res = await addToGitignore(fileBus, workspace, file.path);
-    if (res?.success) {
-      window.dispatchEvent(new CustomEvent(GIT_REFRESH_EVENT));
-      loadStatus();
-    }
-  }, [workspace, fileBus, loadStatus]);
-
-  const buildMenuItems = useCallback((file) => {
-    const absPath = workspace.endsWith("/") ? `${workspace}${file.path}` : `${workspace}/${file.path}`;
-    return [
-      { key: "open", label: t("common.open", { defaultValue: "Open" }), icon: FILE_MENU_ICONS.ExternalLink,
-        disabled: file.status === "D", onClick: () => handleOpenFile(file.path) },
-      { key: "copyPath", label: t("files.copyPath", { defaultValue: "Copy Path" }), icon: FILE_MENU_ICONS.Copy, onClick: () => copyToClipboard(absPath) },
-      { key: "copyRel", label: t("files.copyRelPath", { defaultValue: "Copy Relative Path" }), icon: FILE_MENU_ICONS.FileText, onClick: () => copyToClipboard(file.path) },
-      { key: "copyName", label: t("files.copyName", { defaultValue: "Copy Filename" }), icon: FILE_MENU_ICONS.FileText, onClick: () => copyToClipboard(file.path.split("/").pop()) },
-      { key: "addToGitignore", label: t("git.addToGitignore", { defaultValue: "Add to .gitignore" }), icon: FILE_MENU_ICONS.EyeOff, onClick: () => handleAddToGitignore(file) },
-      { key: "discard", label: t("git.discardChangesTitle", { defaultValue: "Discard Changes" }), icon: FILE_MENU_ICONS.Undo2, danger: true, onClick: () => handleDiscardFile(file.path, file.status) },
-    ];
-  }, [workspace, t, handleOpenFile, copyToClipboard, handleAddToGitignore, handleDiscardFile]);
-
-  const groupedFiles = {
-    modified: statusFiles.filter(f => f.status === "M"),
-    added: statusFiles.filter(f => f.status === "A"),
-    deleted: statusFiles.filter(f => f.status === "D"),
-    untracked: statusFiles.filter(f => f.status === "?")
-  };
-
-  // Render file item with actions
-  const renderFileItem = (file) => {
-    const fileName = file.path.split("/").pop();
-    const dirPath = file.path.includes("/") ? file.path.substring(0, file.path.lastIndexOf("/") + 1) : "";
-    const showStats = file.added > 0 || file.deleted > 0;
-
-    return (
-      <div
-        key={file.path}
-        className="px-3 py-2 bg-surface rounded hover:bg-surface-2 transition"
-        onContextMenu={(e) => openCtxMenu(file, e)}
-      >
-        <div className="flex items-center gap-2">
-          {/* File icon (vscode-style by extension) */}
-          <span className="flex-shrink-0 flex items-center">{resolveFileIcon({ name: fileName, path: file.path, type: "file" }, 18)}</span>
-
-          {/* File info - clickable to view diff */}
-          <button
-            onClick={() => { vibrate(); loadDiff(file.path, file.status); setActiveTab("diff"); }}
-            className="flex-1 min-w-0 text-left"
-          >
-            <div className="text-text font-medium truncate" title={file.path}>{fileName}</div>
-            {dirPath && (
-              <div className="text-text-muted text-xs truncate" title={dirPath}>{dirPath}</div>
-            )}
-          </button>
-
-          {/* Stats */}
-          {showStats && (
-            <div className="flex items-center gap-1 text-xs flex-shrink-0">
-              {file.added > 0 && <span className="text-[var(--success)]">+{file.added}</span>}
-              {file.deleted > 0 && <span className="text-[var(--danger)]">-{file.deleted}</span>}
-            </div>
-          )}
-
-          {/* Open file button (not for deleted) */}
-          {file.status !== "D" && (
-            <button
-              onClick={(e) => { e.stopPropagation(); vibrate(); handleOpenFile(file.path); }}
-              className="p-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-all duration-200 flex-shrink-0"
-              title={t("git.openFile")}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </button>
-          )}
-
-          {/* Discard button */}
-          <button
-            onClick={(e) => { e.stopPropagation(); vibrate(); handleDiscardFile(file.path, file.status); }}
-            className="p-1.5 text-text-muted hover:text-red-400 hover:bg-surface-2 rounded-brand transition-all duration-200 flex-shrink-0"
-            title={t("git.discardChangesTitle")}
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-            </svg>
-          </button>
-
-          {/* Status letter (vscode-style: trailing colored badge, last) */}
-          <span className={`font-mono font-bold w-5 h-5 flex items-center justify-center text-[11px] rounded flex-shrink-0 bg-surface-2 ${GIT_STATUS_COLORS[file.status]}`}>
-            {file.status}
-          </span>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="h-full bg-bg flex flex-col">
@@ -352,56 +244,14 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile, initi
       {/* Content */}
       <div className={`flex-1 overflow-y-auto overflow-x-hidden modal-scrollable ${activeTab === "graph" ? "hidden" : ""}`}>
         {activeTab === "status" ? (
-          statusLoading ? (
-            <div className="flex items-center justify-center h-32 text-text-muted">
-              {t("common.loading")}
-            </div>
-          ) :
-          <div className="p-4 space-y-4">
-            {statusFiles.length === 0 ? (
-              <div className="text-center text-text-muted py-8">
-                {t("git.noChanges")}
-              </div>
-            ) : (
-              <>
-                {groupedFiles.modified.length > 0 && (
-                  <div>
-                    <h3 className="text-text-muted text-sm mb-2">{t("git.modified")} ({groupedFiles.modified.length})</h3>
-                    <div className="space-y-1">
-                      {groupedFiles.modified.map(renderFileItem)}
-                    </div>
-                  </div>
-                )}
-
-                {groupedFiles.added.length > 0 && (
-                  <div>
-                    <h3 className="text-text-muted text-sm mb-2">{t("git.added")} ({groupedFiles.added.length})</h3>
-                    <div className="space-y-1">
-                      {groupedFiles.added.map(renderFileItem)}
-                    </div>
-                  </div>
-                )}
-
-                {groupedFiles.deleted.length > 0 && (
-                  <div>
-                    <h3 className="text-text-muted text-sm mb-2">{t("git.deleted")} ({groupedFiles.deleted.length})</h3>
-                    <div className="space-y-1">
-                      {groupedFiles.deleted.map(renderFileItem)}
-                    </div>
-                  </div>
-                )}
-
-                {groupedFiles.untracked.length > 0 && (
-                  <div>
-                    <h3 className="text-text-muted text-sm mb-2">{t("git.untrackedTitle")} ({groupedFiles.untracked.length})</h3>
-                    <div className="space-y-1">
-                      {groupedFiles.untracked.map(renderFileItem)}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          // Same Source Control panel as desktop: Staged / Changes / Untracked, stage, unstage, tree.
+          <ScmPanel
+            workspace={workspace}
+            fileBus={fileBus}
+            onOpenFile={onOpenFile}
+            onOpenDiff={openScmDiff}
+            onChanged={loadStatus}
+          />
         ) : (
           <div className="p-4 min-w-0">
             {/* File selector and discard button */}
@@ -487,14 +337,6 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile, initi
           changedCount={statusFiles.length}
           onDone={loadStatus}
           onClose={() => setActionsOpen(false)}
-        />
-      )}
-      {ctxMenu && (
-        <FileContextMenu
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          items={buildMenuItems(ctxMenu.file)}
-          onClose={() => setCtxMenu(null)}
         />
       )}
     </div>
