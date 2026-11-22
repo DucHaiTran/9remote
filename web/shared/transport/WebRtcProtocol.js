@@ -561,7 +561,9 @@ export class WebRtcProtocol extends BaseProtocol {
         if (msg.pub && msg.sig) {
           const rejectReason = await this._verifyHostAnswer(msg);
           if (rejectReason) {
-            console.error(`[rtc] host key verification FAILED (${rejectReason}) — relayed answer rejected`);
+            // An http:// LAN origin has no WebCrypto, so this rejection is expected there; WS still carries the session.
+            const log = window.isSecureContext ? console.error : console.warn;
+            log(`[rtc] host key verification FAILED (${rejectReason}) — relayed answer rejected`);
             this._closePeer(`host-key-rejected:${rejectReason}`);
             return;
           }
