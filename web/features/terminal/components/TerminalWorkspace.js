@@ -33,6 +33,7 @@ import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { useStableCallback } from "@/shared/hooks/useStableCallback";
 import { vibrate } from "@/shared/utils/vibration";
 import { PanelLeft } from "@/shared/components/ui/Icon";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 // One shared no-op: an inline arrow here handed the memoized keyboard a new prop per render.
 const noop = () => {};
@@ -231,6 +232,8 @@ function TerminalWorkspace({
     openRightPanel();
   });
   // The right panel is memoized — these four would hand it a fresh closure per render.
+  // On mobile the right panel is a drawer over the terminal: Back closes it first.
+  useBackClose(rightPanel?.onToggle, !isDesktop && !!rightPanel?.open);
   const handleRightPanelTabChange = useCallback(
     (tab) => rightPanel?.onTabChange(tab, baseRoot ?? ""),
     [rightPanel, baseRoot]

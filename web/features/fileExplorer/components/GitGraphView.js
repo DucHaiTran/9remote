@@ -12,6 +12,7 @@ import { GIT_GRAPH_UI, GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
 import { layoutGraph, UNCOMMITTED_HASH } from "../lib/gitGraphLayout.js";
 import GitCommitDetails from "./GitCommitDetails.js";
 import { readGraphCache, writeGraphCache } from "../lib/gitGraphCache.js";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 const { ROW_HEIGHT: H, NODE_RADIUS: R, COLORS } = GIT_GRAPH_UI;
 const MID = H / 2;
@@ -73,6 +74,7 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
   const [branchFilter, setBranchFilter] = useState(cached?.branchFilter || "");
   const [branches, setBranches] = useState(cached?.branches || []);
   const [selected, setSelected] = useState(cached?.selected || null);
+  useBackClose(() => setSelected(null), !!selected);
   const sigRef = useRef(cached?.commits ? signatureOf(cached) : null);
   const countRef = useRef(commits.length);
   useEffect(() => { countRef.current = commits.length; }, [commits.length]);

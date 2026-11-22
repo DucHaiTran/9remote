@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAgentBus } from "@/features/session/hooks/useAgentBus";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -75,7 +75,8 @@ import PendingDeviceApprovalModal from "@/features/session/components/PendingDev
 import { useI18n } from "@/shared/i18n";
 import { useRouteSync } from "@/shared/hooks/useRouteSync";
 import { useLastRoute } from "@/shared/hooks/useLastRoute";
-import { viewToPath } from "@/features/terminal/constants/routeConfig";
+import { viewToPath, WORKSPACE_BASE, EXIT_BACK_MAX_STEPS } from "@/features/terminal/constants/routeConfig";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 function RouteSyncTracker({ hydrated, apiKey }) {
   useRouteSync(hydrated);
@@ -775,6 +776,39 @@ export default function WorkspaceLayout({ children }) {
     router.replace(viewToPath(targetView));
   }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor, removeArtifact, viewStack]);
 
+  // The mobile editor overlay is not a view, so Back closes it through its own history entry.
+  const closeMobileEditor = useCallback(() => {
+    if (mobileEditor?.artifactSessionId) removeArtifact(mobileEditor.artifactSessionId, mobileEditor.path);
+    setMobileEditor(null);
+  }, [mobileEditor, removeArtifact, setMobileEditor]);
+  useBackClose(closeMobileEditor, !isDesktop && !!mobileEditor);
+
+  // Back on the root view asks before leaving the app (phone, web and desktop alike). The guard holds one history
+  // entry; once the user picks Exit it stays down until the view changes, so Back can leave.
+  const [exitAsk, setExitAsk] = useState(false);
+  const [leftFromView, setLeftFromView] = useState(null);
+  // Arm only once the URL itself is the root: a pending router.replace would otherwise land
+  // on the guard's entry and wipe it.
+  const pathname = usePathname();
+  const atRoot = currentView.type === "list" && viewStack.length <= 1
+    && pathname?.replace(/\/$/, "") === WORKSPACE_BASE;
+  // Pushed inside a user gesture: Samsung Internet (and Chrome before any tap) skip on Back
+  // the entries a page adds on its own.
+  useBackClose(() => setExitAsk(true), atRoot && !exitAsk && leftFromView !== currentView, { gesture: true });
+  const exitApp = useCallback(() => {
+    setLeftFromView(currentView);
+    // Keep stepping back while still on the root: a header Back replaces instead of popping,
+    // so a duplicate root entry can sit below. Capped so a first-entry root cannot loop.
+    let steps = EXIT_BACK_MAX_STEPS;
+    const onPop = () => {
+      if (--steps > 0 && location.pathname.replace(/\/$/, "") === WORKSPACE_BASE) history.back();
+      else window.removeEventListener("popstate", onPop);
+    };
+    window.addEventListener("popstate", onPop);
+    // After the dialog's own entry turns stale, so Back walks past it first.
+    setTimeout(() => history.back(), 0);
+  }, [currentView]);
+
   // The terminal header's back means "leave the terminal, go to the session list" — not
   // "undo one step". Stepping one history entry at a time landed on the previous terminal
   // whenever tab switches or deep links had piled entries up, which reads as a tab change.
@@ -1424,6 +1458,15 @@ export default function WorkspaceLayout({ children }) {
           title={confirmDialog.title}
           message={confirmDialog.message}
           confirmText={confirmDialog.confirmText}
+        />
+        <ConfirmDialog
+          isOpen={exitAsk}
+          onClose={() => setExitAsk(false)}
+          onConfirm={exitApp}
+          title={t("common.exitAppTitle")}
+          message={t("common.exitAppMessage")}
+          confirmText={t("common.exitAppConfirm")}
+          cancelText={t("common.exitAppStay")}
         />
       </div>
       {/* Child routes are URL markers only (render nothing) */}

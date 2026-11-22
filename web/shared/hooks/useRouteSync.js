@@ -62,10 +62,18 @@ export function useRouteSync(hydrated) {
     // Overlay views (site browser) live outside the URL — nothing to mirror
     if (OVERLAY_VIEWS.includes(liveView?.type)) return;
     const target = viewToPath(liveView);
-    if (target === lastSyncedPath.current) return;
-    const currentUrlPath = viewToPath(pathToView(pathname, searchParams));
+    // A Back that the URL→store effect already mirrored settles here; its "url" mark must
+    // clear now, or the next forward move is mistaken for Back and never gets an entry.
     const fromUrl = navSourceRef.current === "url";
     if (fromUrl) navSourceRef.current = null;
+    if (target === lastSyncedPath.current) {
+      // Still record where we are: a stale "previous view = terminal" turned the next
+      // terminal opened after a Back into a same-level replace, erasing the list entry.
+      prevViewRef.current = liveView;
+      prevStackLenRef.current = live.length;
+      return;
+    }
+    const currentUrlPath = viewToPath(pathToView(pathname, searchParams));
     // Tab switch within terminal view is same-level: replace (not push) so browser Back
     // returns to session list instead of the previous tab.
     const sameLevelTerminal = prevViewRef.current?.type === "terminal" && liveView?.type === "terminal";

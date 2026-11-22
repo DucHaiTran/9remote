@@ -9,6 +9,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer";
 import { getRecentWorkspaces } from "@/features/fileExplorer/components/WorkspaceList";
 import { shortenHomePath as shortHome } from "../lib/workspaceGrouping";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 // Remember the last browsed directory per HOST — subsequent opens resume where the
 // user left off on that machine (Windows dialog guideline). Keyed by cache scope
@@ -130,6 +131,7 @@ function resolveSegmentStep(segment, baseEntries) {
 // (breadcrumb, dual-mode input, cached listings).
 // Keeps the terminal visible behind it — the mobile flow uses the full-screen WorkspaceList instead.
 export default function FolderPickerModal({ fileBus, initialPath, scope = "", onSelect, onClose }) {
+  useBackClose(onClose);
   const { t } = useI18n();
   // Frozen at mount: lastBrowsedDir mutates on every navigate, so recomputing this
   // per render would re-fire the boot effects and yank the user back to the start dir.

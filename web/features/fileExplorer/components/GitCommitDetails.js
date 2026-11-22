@@ -8,6 +8,7 @@ import { resolveFileIcon } from "../constants/fileIcons.js";
 import { GIT_STATUS_COLORS, GIT_GRAPH_UI } from "../constants/fileExplorer.js";
 import DiffBody from "./DiffBody.js";
 import { readGraphDetail, writeGraphDetail } from "../lib/gitGraphCache.js";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 const short = (hash) => hash.slice(0, GIT_GRAPH_UI.SHORT_HASH);
 const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
@@ -21,6 +22,7 @@ export default function GitCommitDetails({ workspace, fileBus, hash, onBack, onS
   const [error, setError] = useState("");
   const [file, setFile] = useState(null);
   const [diff, setDiff] = useState(null);
+  useBackClose(() => { setFile(null); setDiff(null); }, !!file);
 
   // Mounted per commit (keyed by hash), so state starts empty for each one.
   useEffect(() => {

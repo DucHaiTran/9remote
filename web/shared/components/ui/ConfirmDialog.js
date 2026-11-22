@@ -5,8 +5,10 @@ import { createPortal } from "react-dom";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { CornerDownLeft } from "@/shared/components/ui/Icon";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmText, cancelText }) {
+  useBackClose(onClose, isOpen);
   const { t } = useI18n();
   const cancelBtnRef = useRef(null);
   const confirmBtnRef = useRef(null);

@@ -2,11 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import { Copy, FileText, ExternalLink, Undo2, X, EyeOff } from "./Icon";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 // VSCode-style right-click menu for a file row.
 // items: array of { key, label, icon, onClick, danger?, disabled? }
 // onClose: hide the menu
 export default function FileContextMenu({ x, y, items, onClose }) {
+  useBackClose(onClose);
   const ref = useRef(null);
 
   useEffect(() => {

@@ -19,6 +19,7 @@ import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import { connOf } from "@/shared/transport/hostConn";
 import { useBrowserStore } from "@/shared/stores/browserStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 const QUICK_KEYS_MAC = ["⌥", "⇧", "↵"];
 const QUICK_KEYS_PC = ["Ctrl", "⇧", "↵"];
@@ -57,6 +58,7 @@ export default function NewTerminalModal({
   onCreateBrowser = undefined, workspaceId = null
 }) {
   const { t } = useI18n();
+  useBackClose(onClose);
   // One door: file API + cache scope resolve from the host this modal creates on —
   // callers stop hand-picking buses (hostKey "main" = the main connection). Conn
   // wins over any fileBus prop: a main-scoped prop on a foreign workspace would

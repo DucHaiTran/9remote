@@ -4,11 +4,13 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "@/shared/i18n";
 import { CornerDownLeft, X } from "@/shared/components/ui/Icon";
+import { useBackClose } from "@/shared/hooks/useBackClose";
 
 // Shared text-prompt modal (rename flows): input + confirm/cancel, same chrome
 // as ConfirmDialog (portal, blocking backdrop, X). autoFocus during commit keeps
 // focus inside the tap's user-gesture window, so mobile keyboards open.
 export default function PromptDialog({ title, value, onChange, onSubmit, onClose, confirmLabel, cancelLabel, placeholder, hideCancel = false }) {
+  useBackClose(onClose);
   const { t } = useI18n();
 
   useEffect(() => {

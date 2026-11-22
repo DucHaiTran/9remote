@@ -1,6 +1,8 @@
 // Workspace route <-> view mapping (single source of truth for URL sync)
 
 export const WORKSPACE_BASE = "/workspace";
+// Most history steps an "exit app" walks back through duplicate root entries before giving up.
+export const EXIT_BACK_MAX_STEPS = 10;
 
 // View type -> URL builder. Path carries primary id; query carries extra data.
 export const VIEW_TO_PATH = {
