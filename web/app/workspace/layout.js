@@ -1467,6 +1467,7 @@ export default function WorkspaceLayout({ children }) {
           message={t("common.exitAppMessage")}
           confirmText={t("common.exitAppConfirm")}
           cancelText={t("common.exitAppStay")}
+          closeOnBack={false}
         />
       </div>
       {/* Child routes are URL markers only (render nothing) */}

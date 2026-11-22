@@ -7,8 +7,10 @@ import { useI18n } from "@/shared/i18n";
 import { CornerDownLeft } from "@/shared/components/ui/Icon";
 import { useBackClose } from "@/shared/hooks/useBackClose";
 
-export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmText, cancelText }) {
-  useBackClose(onClose, isOpen);
+// `closeOnBack={false}`: a dialog opened by a Back press itself; pushing an entry then (no
+// gesture) makes Chrome/Samsung skip the page entry below it, so the next Back leaves the app.
+export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmText, cancelText, closeOnBack = true }) {
+  useBackClose(onClose, isOpen && closeOnBack);
   const { t } = useI18n();
   const cancelBtnRef = useRef(null);
   const confirmBtnRef = useRef(null);

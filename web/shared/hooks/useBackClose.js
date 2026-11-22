@@ -14,8 +14,12 @@ const open = []; // layer ids, oldest first
 const stale = new Set();
 let seq = 0;
 let currentId = null; // layer id of the history entry we are on, as far as we know
+// Chrome skips on Back an entry the page left via pushState with no gesture since arriving
+// on it, and a gesture made before a Back still reads as navigator.userActivation.isActive.
+let gestureSinceNav = false;
 
 function onPopState(e) {
+  gestureSinceNav = false;
   const leftId = currentId;
   const arrivedId = e.state?.[KEY] ?? null;
   currentId = arrivedId;
@@ -36,8 +40,21 @@ function onPopState(e) {
 function listen() {
   if (window.__backCloseListener === onPopState) return;
   if (window.__backCloseListener) window.removeEventListener("popstate", window.__backCloseListener);
+  const oldGesture = window.__backCloseGesture;
+  if (typeof oldGesture === "function") GESTURE_EVENTS.forEach((ev) => window.removeEventListener(ev, oldGesture, true));
   window.__backCloseListener = onPopState;
+  window.__backCloseGesture = markGesture;
   window.addEventListener("popstate", onPopState);
+  GESTURE_EVENTS.forEach((ev) => window.addEventListener(ev, markGesture, true));
+}
+
+// Touch pointerup fires before the browser grants activation; only count events that carry it.
+function hasActivation() {
+  return navigator.userActivation ? navigator.userActivation.isActive : true;
+}
+
+function markGesture() {
+  if (hasActivation()) gestureSinceNav = true;
 }
 
 // Events that grant user activation; pointerdown does not on touch screens.
@@ -60,12 +77,23 @@ export function useBackClose(onClose, enabled = true, { gesture = false } = {}) 
       history.pushState({ ...history.state, [KEY]: layer.id }, "", location.href);
       currentId = layer.id;
     };
+    // Back landed on an entry a closed layer left behind: take it over instead of pushing.
+    const hereId = history.state?.[KEY];
+    const adopt = () => {
+      stale.delete(hereId);
+      layer.id = hereId;
+      layer.pushed = true;
+      open.push(layer);
+      currentId = hereId;
+    };
     const waitOpts = { capture: true };
     const onGesture = () => {
+      if (!hasActivation()) return;
       GESTURE_EVENTS.forEach((ev) => window.removeEventListener(ev, onGesture, waitOpts));
       push();
     };
-    if (!gesture || navigator.userActivation?.isActive) push();
+    if (hereId != null && stale.has(hereId)) adopt();
+    else if (!gesture || (gestureSinceNav && hasActivation())) push();
     else GESTURE_EVENTS.forEach((ev) => window.addEventListener(ev, onGesture, waitOpts));
     return () => {
       GESTURE_EVENTS.forEach((ev) => window.removeEventListener(ev, onGesture, waitOpts));
