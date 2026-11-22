@@ -77,6 +77,7 @@ import { useRouteSync } from "@/shared/hooks/useRouteSync";
 import { useLastRoute } from "@/shared/hooks/useLastRoute";
 import { viewToPath, WORKSPACE_BASE, EXIT_BACK_MAX_STEPS } from "@/features/terminal/constants/routeConfig";
 import { useBackClose } from "@/shared/hooks/useBackClose";
+import { inNativeShell, SHELL_BRIDGE, SHELL_BACK_HOOK, SHELL_BACK } from "@/shared/lib/nativeShell";
 
 function RouteSyncTracker({ hydrated, apiKey }) {
   useRouteSync(hydrated);
@@ -794,8 +795,15 @@ export default function WorkspaceLayout({ children }) {
     && pathname?.replace(/\/$/, "") === WORKSPACE_BASE;
   // Pushed inside a user gesture: Samsung Internet (and Chrome before any tap) skip on Back
   // the entries a page adds on its own.
-  useBackClose(() => setExitAsk(true), atRoot && !exitAsk && leftFromView !== currentView, { gesture: true });
+  // The Android shell owns the Back key itself, so no history guard is needed there.
+  const shell = inNativeShell();
+  useBackClose(() => setExitAsk(true), !shell && atRoot && !exitAsk && leftFromView !== currentView, { gesture: true });
   const exitApp = useCallback(() => {
+    if (shell) {
+      setExitAsk(false);
+      window[SHELL_BRIDGE].exitApp();
+      return;
+    }
     setLeftFromView(currentView);
     // Keep stepping back while still on the root: a header Back replaces instead of popping,
     // so a duplicate root entry can sit below. Capped so a first-entry root cannot loop.
@@ -807,7 +815,7 @@ export default function WorkspaceLayout({ children }) {
     window.addEventListener("popstate", onPop);
     // After the dialog's own entry turns stale, so Back walks past it first.
     setTimeout(() => history.back(), 0);
-  }, [currentView]);
+  }, [currentView, shell]);
 
   // The terminal header's back means "leave the terminal, go to the session list" — not
   // "undo one step". Stepping one history entry at a time landed on the previous terminal
@@ -817,6 +825,23 @@ export default function WorkspaceLayout({ children }) {
     if (currentView.type !== "terminal") return popView();
     setViewStack([{ type: "list" }]);
   }, [currentView, popView, setViewStack]);
+
+  // Android shell Back: it passes whether the WebView has history to walk. A restored view
+  // (app reopened on a terminal) has none, so the page steps up itself.
+  useEffect(() => {
+    if (!shell) return;
+    window[SHELL_BACK_HOOK] = (canGoBack) => {
+      if (exitAsk) return SHELL_BACK.EXIT;
+      if (atRoot) {
+        setExitAsk(true);
+        return SHELL_BACK.HANDLED;
+      }
+      if (canGoBack) return SHELL_BACK.BACK;
+      backToSessionList();
+      return SHELL_BACK.HANDLED;
+    };
+    return () => { delete window[SHELL_BACK_HOOK]; };
+  }, [shell, atRoot, exitAsk, backToSessionList]);
 
   // Load sessions + workspaces when the bus connects.
   // Lost-packet retry lives in useSocket (loadedRef-gated, every view).

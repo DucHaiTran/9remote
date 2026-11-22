@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="exit_title">Thoát 9Remote?</string>
+    <string name="exit_message">Các terminal vẫn tiếp tục chạy trên máy chủ.</string>
+    <string name="exit_confirm">Thoát</string>
+    <string name="exit_stay">Ở lại</string>
+</resources>

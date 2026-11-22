@@ -1,0 +1,40 @@
+import groovy.json.JsonSlurper
+
+plugins {
+    id "com.android.application"
+}
+
+// Version follows the monorepo's root package.json (kept in sync by scripts/syncVersion.js).
+def appVersion = new JsonSlurper().parse(rootProject.file("../package.json")).version
+def (major, minor, patch) = appVersion.tokenize(".").collect { it as int }
+def startUrl = project.findProperty("startUrl") ?: "https://hai-9remote.pages.dev/workspace"
+
+android {
+    namespace "cc.hai.nineremote"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "cc.hai.nineremote"
+        minSdk 26
+        // 34: no forced edge-to-edge and the classic Back callback still fires.
+        targetSdk 34
+        versionCode major * 10000 + minor * 100 + patch
+        versionName appVersion
+        buildConfigField "String", "START_URL", "\"${startUrl}\""
+    }
+
+    buildFeatures { buildConfig true }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Sideloaded personal build: sign with the local debug key.
+            signingConfig signingConfigs.debug
+        }
+    }
+}
