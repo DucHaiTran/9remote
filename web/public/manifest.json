@@ -1,6 +1,6 @@
 {
-  "name": "9Remote Terminal",
-  "short_name": "9Remote",
+  "name": "9 Remote W",
+  "short_name": "9 Remote W",
   "id": "/?source=pwa",
   "description": "Access your terminal from anywhere - secure remote terminal access",
   "start_url": "/login",

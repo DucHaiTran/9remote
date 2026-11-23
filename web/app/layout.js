@@ -26,7 +26,7 @@ export const metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "9Remote"
+    title: "9 Remote W"
   },
   applicationName: "9Remote Terminal",
   icons: {
