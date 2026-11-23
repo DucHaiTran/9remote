@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { STORAGE_KEY, DEFAULT_THEME } from "@/shared/theme/themeConfig";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { GA_ID } from "@/shared/constants/analytics";
+import { APP_NAME } from "@/shared/constants/appName";
 import RotateOverlay from "@/shared/components/ui/RotateOverlay";
 import AppUpdateGate from "@/shared/components/ui/AppUpdateGate";
 import ScriptOnce from "@/shared/components/ui/ScriptOnce";
@@ -26,7 +27,7 @@ export const metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "9 Remote W"
+    title: APP_NAME
   },
   applicationName: "9Remote Terminal",
   icons: {

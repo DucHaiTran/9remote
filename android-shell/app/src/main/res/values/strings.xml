@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">9 Remote A</string>
     <string name="exit_title">Exit 9Remote?</string>
     <string name="exit_message">Your terminals keep running on the host.</string>
     <string name="exit_confirm">Exit</string>
