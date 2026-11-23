@@ -408,6 +408,18 @@ export function setupGitHandlers(socket) {
     }
   });
 
+  // Updates remote-tracking refs only; the working tree and local branches stay as they are.
+  socket.on("gitFetch", async ({ repoPath }, callback) => {
+    try {
+      const r = await runGit(["fetch", "--all", "--prune"], repoPath);
+      const output = (r.stdout + r.stderr).trim();
+      if (r.code !== 0) return callback({ success: false, output, error: r.stderr.trim() });
+      callback({ success: true, output });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
   socket.on("gitLog", async ({ repoPath, limit }, callback) => {
     try {
       const n = typeof limit === "number" && limit > 0 ? limit : DEFAULT_GIT_LOG_LIMIT;

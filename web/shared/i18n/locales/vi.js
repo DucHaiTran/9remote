@@ -400,6 +400,8 @@ export default {
     pushFailed: "Push failed",
     pullSuccess: "Pull successful",
     pullFailed: "Pull failed",
+    fetchDone: "Đã fetch từ remote",
+    fetchFailed: "Fetch thất bại",
     stageAllConfirmTitle: "Stage All & Commit",
     stageAllConfirmMessage: "No changes are staged. Stage all changes and commit?",
     stageAndCommit: "Stage & Commit",

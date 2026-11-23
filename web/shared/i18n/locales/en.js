@@ -573,6 +573,8 @@ export default {
     pushFailed: "Push failed",
     pullSuccess: "Pull successful",
     pullFailed: "Pull failed",
+    fetchDone: "Fetched from remote",
+    fetchFailed: "Fetch failed",
     stageAllConfirmTitle: "Stage All & Commit",
     stageAllConfirmMessage: "No changes are staged. Stage all changes and commit?",
     stageAndCommit: "Stage & Commit",

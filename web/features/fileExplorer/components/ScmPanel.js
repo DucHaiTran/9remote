@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useEffect, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, GitBranch, Plus, Minus, Undo2, RefreshCw, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown, EyeOff, Folder, FolderOpen, List, ListTree } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronRight, GitBranch, Plus, Minus, Undo2, RefreshCw, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown, CloudDownload, EyeOff, Folder, FolderOpen, List, ListTree } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
@@ -320,6 +320,18 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, onOpenDiff, o
   }, [workspace, fileBus, reload, t]);
 
 
+  const handleFetch = useCallback(async () => {
+    if (!workspace) return;
+    setLoading(true);
+    setResult(null);
+    const res = await fileBus.gitFetch?.(workspace);
+    setLoading(false);
+    setResult(res?.success
+      ? { ok: true, text: res.output || t("git.fetchDone") }
+      : { ok: false, text: res?.output || res?.error || t("git.fetchFailed") });
+    window.dispatchEvent(new Event(GIT_REFRESH_EVENT));
+  }, [workspace, fileBus, t]);
+
   const anchorMenu = useCallback((e, set) => {
     e.stopPropagation();
     vibrate();
@@ -462,6 +474,15 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, onOpenDiff, o
           </button>
           <button
             type="button"
+            title={t("git.fetch")}
+            disabled={loading}
+            onClick={() => { vibrate(); handleFetch(); }}
+            className="p-1 text-text-muted hover:text-text disabled:opacity-40"
+          >
+            <CloudDownload size={12} />
+          </button>
+          <button
+            type="button"
             title={t("common.refresh")}
             // Broadcast instead of calling reload() directly: the listener above reloads
             // this list and every open diff tab refetches too.
@@ -582,6 +603,7 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, onOpenDiff, o
           y={moreMenu.y}
           items={[
             { key: "push", label: t("git.push"), icon: ArrowUp, onClick: handlePush },
+            { key: "fetch", label: t("git.fetch"), icon: CloudDownload, onClick: handleFetch },
             { key: "pull", label: t("git.pull"), icon: ArrowDown, onClick: handlePull },
             { key: "stageAll", label: t("git.stageAll"), icon: Plus, disabled: !files.length, onClick: stageAll }
           ]}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Loader2 } from "@/shared/components/ui/Icon";
+import { Loader2, CloudDownload } from "@/shared/components/ui/Icon";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import FileContextMenu, { FILE_MENU_ICONS } from "@/shared/components/ui/FileContextMenu";
@@ -144,6 +144,19 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
     }
   }, [fileBus, workspace, load, onChanged, t]);
 
+  const [fetching, setFetching] = useState(false);
+  // Fetch brings in remote branches and commits; the graph then re-reads to show them.
+  const fetchRemotes = useCallback(async () => {
+    setFetching(true);
+    const r = await fileBus.gitFetch(workspace);
+    setFetching(false);
+    setNotice({ ok: r.success, text: r.success ? (r.output || t("git.fetchDone")) : (r.output || r.error || t("git.fetchFailed")) });
+    if (!r.success) return;
+    window.dispatchEvent(new CustomEvent(GIT_REFRESH_EVENT));
+    fileBus.gitBranchList(workspace).then((b) => { if (b?.success) setBranches(b.branches); });
+    load();
+  }, [fileBus, workspace, load, t]);
+
   const ask = (title, message, onConfirm) => setConfirm({ isOpen: true, title, message, onConfirm });
   const askName = (title, onSubmit) => setPrompt({ title, value: "", onSubmit });
 
@@ -250,6 +263,15 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
           {branches.map((b) => <option key={b.name} value={b.name}>{b.isCurrent ? `● ${b.name}` : b.name}</option>)}
         </select>
         <span className="text-xs text-text-muted flex-shrink-0">{t("git.commitCount", { count: commits.length })}{hasMore ? "+" : ""}</span>
+        <button
+          type="button"
+          title={t("git.fetch")}
+          disabled={fetching}
+          onClick={() => { vibrate(); fetchRemotes(); }}
+          className="p-1.5 rounded-brand text-text-muted hover:text-text hover:bg-surface-2 disabled:opacity-40 flex-shrink-0"
+        >
+          {fetching ? <Loader2 size={14} className="animate-spin" /> : <CloudDownload size={14} />}
+        </button>
       </div>
       {noticeBar}
       {error && <div className="px-4 py-2 text-sm text-red-400 border-b border-red-500/40 bg-red-500/15">{error}</div>}

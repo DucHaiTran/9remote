@@ -277,6 +277,12 @@ export function makeFileBus(getBus, getProtocol = () => null, getLiveBus = getBu
     bus.emit("gitPull", { repoPath }, resolve);
   }),
 
+  gitFetch: (repoPath) => new Promise((resolve) => {
+    const bus = getBus();
+    if (!bus) return resolve({ success: false, error: "Not connected" });
+    bus.emit("gitFetch", { repoPath }, resolve);
+  }),
+
   gitLog: (repoPath, limit = 50) => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });
