@@ -7,7 +7,7 @@ import path from "path";
 import os from "os";
 import { spawn } from "child_process";
 import pty from "node-pty";
-import { resolveShell, buildShellArgs, DAEMON_VERSION } from "./constants.js";
+import { resolveShell, buildShellArgs, DAEMON_VERSION, BYOBU_LAUNCHER_FILE, BYOBU_LAUNCHER_ENV, BYOBU_LAUNCHER_SCRIPT } from "./constants.js";
 import { createRouter } from "./daemonRouter.js";
 import { createKvStore, kvRoutes } from "./daemonKv.js";
 import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
@@ -88,12 +88,20 @@ function getDefaultCwd() {
   return process.env.HOME || process.env.USERPROFILE || os.homedir();
 }
 
+// The daemon runs from its own versioned copy, so the launcher lives (and updates) beside it.
+const BYOBU_LAUNCHER_PATH = path.join(path.dirname(process.argv[1] || "."), BYOBU_LAUNCHER_FILE);
+if (process.platform !== "win32") fs.writeFileSync(BYOBU_LAUNCHER_PATH, BYOBU_LAUNCHER_SCRIPT, { mode: 0o755 });
+
 function buildShellEnv(shellPath) {
   const env = {
     ...process.env,
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
-    LANG: process.env.LANG || "en_US.UTF-8"
+    LANG: process.env.LANG || "en_US.UTF-8",
+    // Sessions already persist here; a login profile that auto-launches Byobu would swallow the
+    // agent CLI typed on start. Running `byobu` by hand still works.
+    BYOBU_DISABLE: "1",
+    [BYOBU_LAUNCHER_ENV]: BYOBU_LAUNCHER_PATH
   };
   // Don't leak agent internals (PORT, NODE_ENV, NREMOTE_ENV) into user shells.
   delete env.PORT;
@@ -109,11 +117,13 @@ function buildShellEnv(shellPath) {
     zdotDir = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-zsh-"));
     const tmpZshrc = path.join(zdotDir, ".zshrc");
     const home = env.HOME || os.homedir();
-    // Temp ZDOTDIR injected for OSC 7; source HOME login files skipped by zsh.
+    // Temp ZDOTDIR injected for OSC 7; source HOME login files skipped by zsh. Login files only
+    // in a login shell: a nested zsh inherits ZDOTDIR, and re-running .zprofile there relaunches
+    // whatever it starts (Byobu's "Run a shell without Byobu" looped back into its menu).
     let body = "";
-    body += `[ -f "${home}/.zprofile" ] && source "${home}/.zprofile"\n`;
+    body += `[[ -o login && -f "${home}/.zprofile" ]] && source "${home}/.zprofile"\n`;
     body += `[ -f "${home}/.zshrc" ] && source "${home}/.zshrc"\n`;
-    body += `[ -f "${home}/.zlogin" ] && source "${home}/.zlogin"\n`;
+    body += `[[ -o login && -f "${home}/.zlogin" ]] && source "${home}/.zlogin"\n`;
     // Append OSC 7 to precmd_functions so a user-defined precmd in .zshrc still runs.
     body += "NineRemoteOsc7() { print -Pn \"\\e]7;file://%m\${PWD}\\e\\\\\" }\n";
     body += "precmd_functions+=( NineRemoteOsc7 )\n";

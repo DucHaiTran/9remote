@@ -8,7 +8,7 @@ import { useI18n } from "@/shared/i18n";
 import transliterate from "@sindresorhus/transliterate";
 import { shortenHomePath, suggestWorktreePath } from "@/features/terminal/lib/workspaceGrouping";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
-import { agentIconUrl, AGENT_ICON_CLS, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
+import { agentIconUrl, AGENT_ICON_CLS, agentLaunchCommand, byobuLaunch, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import { isMac } from "@/features/terminal/constants/shortcuts";
 import { openGitGraph } from "@/features/fileExplorer/lib/openGitGraph";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
@@ -85,6 +85,7 @@ export default function NewTerminalModal({
   const wtInputRef = useRef(null);
   // On by default — the agent acts without approval prompts unless the user opted out before
   const [skipPermissions, setSkipPermissions] = useState(() => loadTerminalPrefs().yolo);
+  const [useByobu, setUseByobu] = useState(() => loadTerminalPrefs().byobu);
   const [shellId, setShellId] = useState(() => {
     const saved = loadShellPref();
     if (saved && shells.some((s) => s.id === saved)) return saved;
@@ -237,6 +238,8 @@ export default function NewTerminalModal({
   // Slot 1: Browser (row 1 right), or the spacer that keeps pairs aligned on the same row
   // Slot 2+: Claude CLI, Claude UI, then pairs CLI→UI, then CLI-only, Git Graph last
   const options = [null, browserOpt || { empty: true }, ...(claudeCli ? [claudeCli] : []), ...(claudeUi ? [claudeUi] : []), ...sortedPairs, ...cliOnly, ...(graphOpt ? [graphOpt] : [])];
+  // A chat-UI pick has no terminal to put Byobu in.
+  const byobuFor = (pick) => useByobu && !pick?.isAiUi;
   const canSkip = !agent?.isAiUi && canSkipPermissions(agent);
   // The agent's own skip-mode token, e.g. --yolo / GOOSE_MODE=auto — null for plain shells
   const skipFlag = agent?.yolo
@@ -291,7 +294,9 @@ export default function NewTerminalModal({
       if (!picked && shellId) savePref(TERMINAL_PREF_KEYS.shell, shellId);
       savePref(TERMINAL_PREF_KEYS.agent, picked?.id || "");
       savePref(TERMINAL_PREF_KEYS.yolo, skipPermissions ? "1" : "0");
+      savePref(TERMINAL_PREF_KEYS.byobu, useByobu ? "1" : "0");
       const yolo = skipPermissions && canSkipPermissions(picked);
+      const launch = byobuFor(picked) ? byobuLaunch(agentLaunchCommand(picked, yolo)) : picked;
       // An agent tab left unnamed takes the agent's name, not the host's generic "Term N";
       // a staged worktree names the tab after its branch instead.
       const suffix = suggestIndex ? ` ${suggestIndex}` : "";
@@ -299,7 +304,8 @@ export default function NewTerminalModal({
       const finalName = typed || (stagedWorktree ? stagedWorktree.branch : (picked ? `${picked.short || picked.label}${suffix}` : null));
       // A name we filled in ourselves is still the terminal's to lose: it keeps
       // following its conversation's title, unlike one the user actually typed.
-      onCreate?.(finalName, !picked ? (shellId || null) : null, picked, yolo, effCwd, !typed);
+      // Byobu wraps the agent launch; the wrapped command already carries the skip flag.
+      onCreate?.(finalName, !picked ? (shellId || null) : null, launch, launch === picked && yolo, effCwd, !typed);
       onClose?.();
     };
     // Create is the commit point: the worktree is made here, never while typing.
@@ -572,6 +578,21 @@ export default function NewTerminalModal({
               ))}
             </select>
           )}
+          {!agent?.isAiUi && <div role="radiogroup" aria-label={t("terminal.launchMode")} className="grid grid-cols-2 gap-1 p-0.5 bg-surface-2 rounded-brand">
+            {[[false, t("terminal.launchPlain")], [true, t("terminal.launchByobu")]].map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                role="radio"
+                aria-checked={useByobu === value}
+                onClick={() => setUseByobu(value)}
+                className={`px-2 py-1.5 rounded-brand text-xs ${useByobu === value ? "bg-surface-3 text-text font-medium" : "text-text-muted hover:text-text"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>}
+          {byobuFor(agent) && agent && <p className="text-[11px] text-text-muted px-0.5">{t("terminal.byobuAgentHint", { agent: agent.short || agent.label })}</p>}
           {/* Always mounted — dimmed when the pick has no skip mode, so switching picks never resizes */}
           <label className={`flex items-center gap-2 px-0.5 select-none ${canSkip ? "cursor-pointer" : "opacity-50 cursor-not-allowed"}`}>
             <input

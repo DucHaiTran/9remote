@@ -1,5 +1,5 @@
 // Daemon protocol/code version — bump when daemon behavior changes.
-export const DAEMON_VERSION = "74";
+export const DAEMON_VERSION = "76";
 
 // Staging directory for pasted/attached files before handing to CLI.
 export const UPLOAD_DIR = "/tmp/9remote-uploads";
@@ -94,3 +94,36 @@ export const HISTORY = {
   SEARCH_FILE_BYTES: 32 * 1024 * 1024,
   SEARCH_TIME_BUDGET_MS: 700
 };
+
+// Written next to the running daemon; shells find it through BYOBU_LAUNCHER_ENV.
+export const BYOBU_LAUNCHER_FILE = "byobuLaunch.sh";
+export const BYOBU_LAUNCHER_ENV = "NINE_REMOTE_BYOBU";
+// `byobuLaunch.sh [command...]` opens Byobu's own menu. A session created from it (or the first
+// one, when none exist) runs the command in the user's shell; attaching to one types nothing.
+// Byobu's menu starts a new session with $SHELL, so a one-shot script holding the command
+// stands in for it there and deletes itself once run.
+export const BYOBU_LAUNCHER_SCRIPT = [
+  "#!/bin/sh",
+  "# The session's temp ZDOTDIR dies with it; a tmux server must not keep pointing there.",
+  "unset ZDOTDIR",
+  "[ $# -eq 0 ] && exec byobu",
+  "real=\"${SHELL:-/bin/sh}\"",
+  "sq() { printf \"'%s'\" \"$(printf '%s' \"$1\" | sed \"s/'/'\\\\\\\\''/g\")\"; }",
+  "start=$(mktemp \"${TMPDIR:-/tmp}/9remote-byobu.XXXXXX\") || exit 1",
+  "{",
+  "  echo '#!/bin/sh'",
+  "  echo 'rm -f \"$0\"'",
+  "  echo \"export SHELL=$(sq \"$real\")\"",
+  "  echo \"exec $(sq \"$real\") -ic $(sq \"$*; exec $(sq \"$real\") -i\")\"",
+  "} > \"$start\"",
+  "chmod 700 \"$start\"",
+  "trap 'rm -f \"$start\"' EXIT",
+  "trap 'exit 129' HUP INT TERM",
+  "# No server yet: nothing to choose from, so start the session on the command directly.",
+  "# A new server must keep the real shell, which tmux also uses for Byobu's status bar.",
+  "if ! tmux has-session 2>/dev/null; then",
+  "  byobu new-session \"$start\"",
+  "else",
+  "  SHELL=\"$start\" byobu",
+  "fi"
+].join("\n") + "\n";

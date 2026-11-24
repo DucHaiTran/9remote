@@ -50,6 +50,16 @@ const SHELL_PREF_KEY = "9remote.terminal.shellPref";
 const AGENT_PREF_KEY = "9remote.terminal.agentPref";
 // v2: default flipped to on — a new key so an old opt-out value isn't read as one
 const YOLO_PREF_KEY = "9remote.terminal.yoloPref2";
+const BYOBU_PREF_KEY = "9remote.terminal.byobuPref";
+
+// Set by the host's PTY daemon (BYOBU_LAUNCHER_ENV) to its Byobu launcher.
+const BYOBU_LAUNCHER_VAR = "NINE_REMOTE_BYOBU";
+
+// Typed when "Byobu" is picked: Byobu's own menu, where a session created from it runs the agent
+// and an existing one opens untouched. A plain shell falls back to byobu on hosts without it.
+export function byobuLaunch(agentCmd) {
+  return { cmd: agentCmd ? `"$${BYOBU_LAUNCHER_VAR}" ${agentCmd}` : `"\${${BYOBU_LAUNCHER_VAR}:-byobu}"` };
+}
 
 function loadPref(key) {
   try { return localStorage.getItem(key) || null; } catch { return null; }
@@ -59,7 +69,7 @@ export function savePref(key, value) {
   try { localStorage.setItem(key, value); } catch {}
 }
 
-export const TERMINAL_PREF_KEYS = { shell: SHELL_PREF_KEY, agent: AGENT_PREF_KEY, yolo: YOLO_PREF_KEY };
+export const TERMINAL_PREF_KEYS = { shell: SHELL_PREF_KEY, agent: AGENT_PREF_KEY, yolo: YOLO_PREF_KEY, byobu: BYOBU_PREF_KEY };
 
 export function loadShellPref() {
   return loadPref(SHELL_PREF_KEY);
@@ -70,6 +80,7 @@ export function loadTerminalPrefs() {
   return {
     agentId: loadPref(AGENT_PREF_KEY) || "",
     shellId: loadPref(SHELL_PREF_KEY),
-    yolo: loadPref(YOLO_PREF_KEY) !== "0"
+    yolo: loadPref(YOLO_PREF_KEY) !== "0",
+    byobu: loadPref(BYOBU_PREF_KEY) === "1"
   };
 }
