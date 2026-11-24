@@ -11,7 +11,9 @@ const SCROLLABLE_SELECTOR = [
   ".xterm-viewport", ".xterm-screen", ".terminal-scroll",
   ".cm-scroller", ".cm-content",
   ".overflow-auto", ".overflow-x-auto", ".overflow-y-auto",
-  ".modal-scrollable", ".brand-range"
+  ".modal-scrollable", ".brand-range",
+  // A grown text box (the chat composer) scrolls its own overflow.
+  "textarea"
 ].join(",");
 
 export function useTerminalPageViewport({ setKeyboardOpen }) {
