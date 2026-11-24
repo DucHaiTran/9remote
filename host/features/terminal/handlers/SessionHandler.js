@@ -404,6 +404,19 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     callback?.({ success: true });
   });
 
+  // Workspace order is the map's insertion order (also what workspaces.json stores).
+  socket.on("reorderWorkspaces", ({ orderedIds } = {}, callback) => {
+    if (!Array.isArray(orderedIds)) return callback?.({ success: false, error: "orderedIds required" });
+    const listed = [...new Set(orderedIds)].filter((id) => workspaces.has(id));
+    const rest = [...workspaces.keys()].filter((id) => !listed.includes(id));
+    const entries = [...listed, ...rest].map((id) => [id, workspaces.get(id)]);
+    workspaces.clear();
+    for (const [id, workspace] of entries) workspaces.set(id, workspace);
+    persist();
+    broadcastChanged();
+    callback?.({ success: true });
+  });
+
   // TUI agent CLIs detected on PATH (cached) — powers the new-terminal modal
   socket.on("getAgentClis", (_payload, callback) => {
     if (typeof _payload === "function") callback = _payload; // bare-emit legacy shape

@@ -48,6 +48,12 @@ export function workspaceGitPath(workspace) {
   return workspace?.items?.find((s) => s.workspacePath)?.workspacePath || null;
 }
 
+// Folder a workspace points at — its default name, and what an alias is shown beside.
+export function workspaceFolderName(workspace) {
+  const p = workspaceGitPath(workspace);
+  return p ? p.split(/[\\/]/).filter(Boolean).pop() || null : null;
+}
+
 // Sibling directory named after the branch — the convention most worktree users follow.
 export function suggestWorktreePath(repoPath, branch) {
   if (!repoPath) return "";

@@ -55,7 +55,7 @@ export default function NewTerminalModal({
   workspacePath = null, workspaceName = "", fileBus = null, homeDir = null,
   onResumeAgentSession = null, liveSessionIds = null, activeSessionId = null,
   onSelectSession = null, connected = true, hostKey = "main",
-  onCreateBrowser = undefined, workspaceId = null
+  onCreateBrowser = undefined, workspaceId = null, initialTab = "new"
 }) {
   const { t } = useI18n();
   useBackClose(onClose);
@@ -94,7 +94,7 @@ export default function NewTerminalModal({
   // Past conversations live behind a second tab rather than a separate surface: both
   // answer "which terminal am I opening", so they belong in one place. Only offered
   // when the caller can actually resume one and there is a directory to look in.
-  const [tab, setTab] = useState("new");
+  const [tab, setTab] = useState(initialTab);
   const nameRef = useRef(null);
   const listRef = useRef(null);
   const didScrollToPickRef = useRef(false);

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { vibrate } from "@/shared/utils/vibration";
+import { DRAG_AUTOSCROLL } from "@/features/terminal/constants/terminalConfig";
 
 // Pointer drag-to-reorder shared by the sidebar list and the tab strip. Rows/tabs move by
 // transform only while dragging — the order is committed once on release, so no re-render
@@ -11,15 +12,26 @@ import { vibrate } from "@/shared/utils/vibration";
 // user a second click on every tab after a drag. The pointermove/pointerup listeners live
 // on `window`, so they already see moves and releases outside the dragged element.
 const AXIS = {
-  y: { pos: "clientY", start: "top", size: "height" },
-  x: { pos: "clientX", start: "left", size: "width" }
+  y: { pos: "clientY", start: "top", end: "bottom", size: "height", scroll: "scrollTop", overflow: "overflowY", scrollSize: "scrollHeight", clientSize: "clientHeight" },
+  x: { pos: "clientX", start: "left", end: "right", size: "width", scroll: "scrollLeft", overflow: "overflowX", scrollSize: "scrollWidth", clientSize: "clientWidth" }
 };
+
+// Nearest ancestor that actually scrolls along the axis — the list the drag may scroll.
+function scrollParentOf(el, a) {
+  for (let node = el?.parentElement; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node)[a.overflow];
+    if ((overflow === "auto" || overflow === "scroll") && node[a.scrollSize] > node[a.clientSize]) return node;
+  }
+  return null;
+}
 
 // onTap(id): a mouse press released on its own slot reorders nothing, so it is a tap on the
 // pressed item — however far the pointer drifted. Selecting here, not in `click`, matters:
 // WebKit sends `click` to the common ancestor when down/up land on different elements, so a
 // light trackpad press that slides onto a neighbour never reaches the item's own onClick.
-export function useDragReorder({ axis = "y", threshold = 12, onCommit, onTap }) {
+// autoScroll: a drag held near the scrolling list's edge scrolls it, so an item can travel
+// to a slot that is off screen.
+export function useDragReorder({ axis = "y", threshold = 12, onCommit, onTap, autoScroll = false }) {
   const [dragId, setDragId] = useState(null);
   const elsRef = useRef(new Map()); // item id -> element
   const movedRef = useRef(false);
@@ -72,6 +84,13 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit, onTap }) 
     const startPos = e[a.pos];
     let toIdx = fromIdx;
     let frame = null;
+    // Boxes were measured before any scroll: a scrolled list shifts every item by the same
+    // amount, so the drag offset is the pointer's travel plus the list's.
+    const scroller = autoScroll ? scrollParentOf(elsRef.current.get(id), a) : null;
+    const scrollStart = scroller ? scroller[a.scroll] : 0;
+    let lastPos = startPos;
+    let scrollFrame = null;
+    const offset = () => lastPos - startPos + (scroller ? scroller[a.scroll] - scrollStart : 0);
 
     const paint = (delta) => {
       frame = null;
@@ -95,20 +114,43 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit, onTap }) 
         finish(true, true);
         return;
       }
-      const delta = ev[a.pos] - startPos;
+      lastPos = ev[a.pos];
       if (!movedRef.current) {
-        if (Math.abs(delta) < threshold) return;
+        if (Math.abs(offset()) < threshold) return;
         movedRef.current = true;
         vibrate();
         setDragId(id);
+        if (scroller) scrollFrame = requestAnimationFrame(edgeScroll);
       }
+      place();
+    };
+
+    const place = () => {
+      const delta = offset();
       // Slot the dragged item's centre now sits over — the last box it has reached
       const centre = self.start + self.size / 2 + delta;
       let next = 0;
       for (let i = 0; i < boxes.length; i++) if (centre >= boxes[i].start) next = i;
       toIdx = next;
       if (frame) return;
-      frame = requestAnimationFrame(() => paint(delta));
+      frame = requestAnimationFrame(() => paint(offset()));
+    };
+
+    // Runs every frame while dragging: a finger resting near an edge keeps the list moving.
+    const edgeScroll = () => {
+      scrollFrame = null;
+      const r = scroller.getBoundingClientRect();
+      const { edgePx, maxStepPx } = DRAG_AUTOSCROLL;
+      const nearStart = r[a.start] + edgePx - lastPos;
+      const nearEnd = lastPos - (r[a.end] - edgePx);
+      const step = nearStart > 0 ? -Math.ceil((Math.min(nearStart, edgePx) / edgePx) * maxStepPx)
+        : nearEnd > 0 ? Math.ceil((Math.min(nearEnd, edgePx) / edgePx) * maxStepPx) : 0;
+      if (step) {
+        const before = scroller[a.scroll];
+        scroller[a.scroll] = before + step;
+        if (scroller[a.scroll] !== before) place();
+      }
+      scrollFrame = requestAnimationFrame(edgeScroll);
     };
 
     // Tears the drag down. `commit` is false when the release was never seen (a newer
@@ -126,6 +168,7 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit, onTap }) 
       window.removeEventListener("blur", onUp);
       finishRef.current = null;
       if (frame) { cancelAnimationFrame(frame); frame = null; }
+      if (scrollFrame) { cancelAnimationFrame(scrollFrame); scrollFrame = null; }
       for (const el of elsRef.current.values()) if (el) el.style.transform = "";
       // A tap is selected before any state write, so the selection is not queued behind a render.
       const tapped = commit && tapOk && released && !movedRef.current && toIdx === fromIdx;
@@ -156,7 +199,7 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit, onTap }) 
     window.addEventListener("mouseup", onUp);
     window.addEventListener("pointercancel", onUp);
     window.addEventListener("blur", onUp);
-  }, [axis, threshold, onCommit, onTap]);
+  }, [axis, threshold, onCommit, onTap, autoScroll]);
 
   return { dragId, registerEl, startDrag, consumeClick };
 }

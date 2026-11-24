@@ -95,7 +95,7 @@ function TerminalWorkspace({
   paneRegistry, bindSwipeTab, nav,
   onBack, onOpenRemote, onOpenMobile, onOpenRemoteHost = null, onOpenMobileHost = null, onOpenFiles, onLogout,
   onRenameHost, onDeleteHost, onMainDisconnect,
-  onDeleteWorkspace, onRenameWorkspace, onReorderSession, onSetHiddenRepos, atStackBottom = false,
+  onDeleteWorkspace, onRenameWorkspace, onReorderSession, onReorderWorkspaces = null, onSetHiddenRepos, atStackBottom = false,
   onAddWorkspace, onOpenSettings, homeDir, recentWorkspaces,
   rightPanel, editorPanel, mobilePanel, onOpenArtifact, fileBus,
   browserPanel = null,
@@ -584,6 +584,7 @@ function TerminalWorkspace({
               onRenameSession={nav.handleRenameSession}
               onDeleteSession={nav.handleDeleteSession}
               onReorderSession={handleReorderSession}
+              onReorderWorkspaces={onReorderWorkspaces}
               onDeleteWorkspace={onDeleteWorkspace}
               onAddWorkspace={onAddWorkspace}
               onRenameWorkspace={onRenameWorkspace}

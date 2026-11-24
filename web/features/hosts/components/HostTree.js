@@ -12,7 +12,7 @@ import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { connOf } from "@/shared/transport/hostConn";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
-import { DRAG_HOLD_MS, DRAG_MOVE_TOLERANCE_PX } from "@/features/terminal/constants/terminalConfig";
+import { DRAG_HOLD_MS, DRAG_MOVE_TOLERANCE_PX, SESSION_SWIPE } from "@/features/terminal/constants/terminalConfig";
 import { workspaceGitPath } from "@/features/terminal/lib/workspaceGrouping";
 import { ProfileAvatar } from "@/features/browser/lib/profileAvatar";
 import { useBrowserStore } from "@/shared/stores/browserStore";
@@ -27,6 +27,7 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import IconMenu from "@/shared/components/ui/IconMenu";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
+import { workspaceFolderName } from "@/features/terminal/lib/workspaceGrouping";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 import HostTreeRow from "./HostTreeRow";
@@ -76,6 +77,7 @@ export default function HostTree({
   const { isCollapsed, toggle: toggleNode } = useTreeCollapse(host.key);
   const open = !isCollapsed(TREE_ROOT);
   const [termModalWs, setTermModalWs] = useState(null);   // workspace id the modal creates in
+  const [termModalTab, setTermModalTab] = useState("new"); // "history" when opened from the history button
   const [wsRename, setWsRename] = useState(null);         // {id, value}
   const [wsDelete, setWsDelete] = useState(null);         // {id, name}
   const [sessRename, setSessRename] = useState(null);     // {id, value}
@@ -112,26 +114,46 @@ export default function HostTree({
   const { dragId, registerEl, startDrag, consumeClick } = useDragReorder({
     axis: "y",
     onTap: selectRow,
-    onCommit: (orderedIds) => actions.reorderSession?.(orderedIds)
+    onCommit: (orderedIds) => actions.reorderSession?.(orderedIds),
+    autoScroll: true
+  });
+  const wsDrag = useDragReorder({
+    axis: "y",
+    onCommit: (orderedIds) => actions.reorderWorkspaces?.(orderedIds),
+    autoScroll: true
   });
 
   // Touch long-press → drag, same gesture every host's rows share (no hover grip
   // on a phone). One ref serves every row: touch drives one press at a time, and
   // a swipe past the tolerance cancels the hold so scrolling stays untouched.
   const holdRef = useRef(null);
+  // Until this touch ends the browser may not scroll: the first move after a hold otherwise
+  // starts a page pan, which cancels the pointer and drops the drag (the "rung but nothing
+  // moves" press). Lifted on the touch's own end.
+  const lockTouchPan = () => {
+    const stop = (e) => { if (e.cancelable) e.preventDefault(); };
+    const release = () => {
+      window.removeEventListener("touchmove", stop);
+      window.removeEventListener("touchend", release);
+      window.removeEventListener("touchcancel", release);
+    };
+    window.addEventListener("touchmove", stop, { passive: false });
+    window.addEventListener("touchend", release);
+    window.addEventListener("touchcancel", release);
+  };
   const clearHold = () => {
     if (holdRef.current) { clearTimeout(holdRef.current.timer); holdRef.current = null; }
   };
-  const armHold = (e, id, ids) => {
+  const armHold = (e, id, ids, begin = startDrag) => {
     if (ids.length < 2 || !actionable) return;
-    if (e.pointerType === "mouse") { startDrag(e, id, ids); return; }
+    if (e.pointerType === "mouse") { begin(e, id, ids); return; }
     // A caller with its own long-press menu (desktop sidebar's row menu) owns the
     // hold — touch-drag there goes through the grip instead.
     if (onRowTouch) return;
     const start = { x: e.clientX, y: e.clientY };
     // clientX/Y and pointerType outlive the dispatched event inside the timer
     const down = e;
-    const timer = setTimeout(() => { clearHold(); vibrate(); startDrag(down, id, ids); }, DRAG_HOLD_MS);
+    const timer = setTimeout(() => { clearHold(); vibrate(); lockTouchPan(); begin(down, id, ids); }, DRAG_HOLD_MS);
     holdRef.current = { timer, start };
   };
   const moveHold = (e) => {
@@ -140,12 +162,51 @@ export default function HostTree({
     if (Math.abs(e.clientX - h.start.x) > DRAG_MOVE_TOLERANCE_PX || Math.abs(e.clientY - h.start.y) > DRAG_MOVE_TOLERANCE_PX) clearHold();
   };
   // While a drag is live, touch scrolling must not fight the transform
+  // Mobile row swipe: one touch at a time, so one ref and one offset serve every row.
+  const swipeRef = useRef(null); // {id, x, y, active}
+  const swipedRef = useRef(false); // the release that ended a swipe must not also select the row
+  const [swipe, setSwipe] = useState(null); // {id, dx} while a row follows the finger
+  const swipeStart = (e, id) => {
+    if (!mobile || e.pointerType === "mouse" || !actions.deleteSession) return;
+    swipeRef.current = { id, x: e.clientX, y: e.clientY, active: false };
+  };
+  const swipeMove = (e) => {
+    const s = swipeRef.current;
+    if (!s) return;
+    const dx = e.clientX - s.x;
+    const dy = e.clientY - s.y;
+    if (!s.active) {
+      if (Math.abs(dy) > DRAG_MOVE_TOLERANCE_PX && Math.abs(dy) >= Math.abs(dx)) { swipeRef.current = null; return; }
+      if (dx > -SESSION_SWIPE.startPx || Math.abs(dx) < Math.abs(dy) * SESSION_SWIPE.ratio) return;
+      s.active = true;
+      clearHold();
+    }
+    setSwipe({ id: s.id, dx: Math.max(-SESSION_SWIPE.maxPx, Math.min(0, dx)) });
+  };
+  const swipeEnd = (e, name) => {
+    const s = swipeRef.current;
+    swipeRef.current = null;
+    if (!s?.active) return;
+    swipedRef.current = true;
+    setSwipe(null);
+    if (e.type === "pointerup" && s.x - e.clientX >= SESSION_SWIPE.closePx) {
+      vibrate();
+      setSessDelete({ id: s.id, name });
+    }
+  };
+  const consumeSwipe = () => {
+    const was = swipedRef.current;
+    swipedRef.current = false;
+    return was;
+  };
+
+  const anyDrag = dragId || wsDrag.dragId;
   useEffect(() => {
-    if (!dragId) return;
+    if (!anyDrag) return;
     const stopScroll = (e) => e.preventDefault();
     window.addEventListener("touchmove", stopScroll, { passive: false });
     return () => window.removeEventListener("touchmove", stopScroll);
-  }, [dragId]);
+  }, [anyDrag]);
 
 
   const groups = hostTree(host.sessions, host.workspaces);
@@ -222,8 +283,15 @@ export default function HostTree({
             // Callers hand undefined when the active workspace belongs to another
             // host — null means THIS host's ungrouped is active.
             const isActiveWs = activeWorkspaceId === rawId;
+            // Only real workspaces move; "ungrouped" always stays last.
+            const wsIds = groups.map((g) => g.workspace?.id).filter((id) => id != null);
+            const wsDragging = rawId != null && wsDrag.dragId === rawId;
             return (
-              <div key={wsKey} className={`flex flex-col ${mobile ? "" : "mt-1 first:mt-0"}`}>
+              <div
+                key={wsKey}
+                ref={rawId != null ? wsDrag.registerEl(rawId) : undefined}
+                className={`flex flex-col ${mobile ? "" : "mt-1 first:mt-0"} ${wsDragging ? "relative z-20 opacity-90 shadow-lg ring-1 ring-brand-500 rounded-[3px] bg-surface" : ""}`}
+              >
                 <WorkspaceHeader
                   mobile={mobile}
                   workspace={{ id: rawId, name: workspace?.name || t("workspaces.ungrouped"), path: workspace?.path || null, items: sessions }}
@@ -232,12 +300,20 @@ export default function HostTree({
                   fileBus={fileBus}
                   statusMap={host.statusMap}
                   collapsed={isCollapsed(wsKey)}
-                  onToggleCollapse={() => toggleNode(wsKey)}
+                  onToggleCollapse={() => { if (wsDrag.consumeClick()) return; toggleNode(wsKey); }}
+                  dragHandlers={rawId != null && actions.reorderWorkspaces ? {
+                    onPointerDown: (e) => armHold(e, rawId, wsIds, wsDrag.startDrag),
+                    onPointerMove: moveHold,
+                    onPointerUp: clearHold,
+                    onPointerCancel: clearHold,
+                    onPointerLeave: clearHold
+                  } : null}
                   onSelect={actions.selectWorkspace ? () => { vibrate(); actions.selectWorkspace(rawId); } : null}
-                  onNewTerminal={actions.createSession ? () => setTermModalWs(wsKey) : null}
+                  onNewTerminal={actions.createSession ? () => { setTermModalTab("new"); setTermModalWs(wsKey); } : null}
+                  onOpenHistory={onResumeAgentSession && workspace?.path ? () => { setTermModalTab("history"); setTermModalWs(wsKey); } : null}
                   onOpenGraph={!fleetConn && workspace?.path ? () => openGitGraph({ workspaceId: rawId, workspacePath: workspace.path }) : null}
                   onAddWorkspace={menuAddWorkspace}
-                  onRename={actions.renameWorkspace && rawId != null ? () => setWsRename({ id: rawId, value: workspace.name }) : null}
+                  onRename={actions.renameWorkspace && rawId != null ? () => setWsRename({ id: rawId, value: workspace.name, folder: workspaceFolderName(workspace) }) : null}
                   onDelete={actions.deleteWorkspace && rawId != null ? () => setWsDelete({ id: rawId, name: workspace.name }) : null}
                 />
                 {!isCollapsed(wsKey) && sessions.map((s, i) => {
@@ -247,21 +323,23 @@ export default function HostTree({
                   const isDragging = dragId === s.id;
                   const hidden = hiddenPaneSessionIds.includes(s.id);
                   const title = s.name || t("terminal.defaultName");
+                  const swipeDx = swipe?.id === s.id ? swipe.dx : 0;
+                  const swipeArmed = swipeDx <= -SESSION_SWIPE.closePx;
                   return (
                     <Fragment key={s.id}>
                     <div
                       ref={registerEl(s.id)}
                       data-sid={s.id}
-                      style={mobile ? { "--i": String(Math.min(i, 6)) } : undefined}
+                      style={mobile ? { "--i": String(Math.min(i, 6)), ...(swipeDx ? { transform: `translateX(${swipeDx}px)` } : {}) } : undefined}
                       className={`group flex items-center gap-1.5 ${mobile ? "pl-6 pr-9 list-rise" : "pl-3.5 pr-2"} py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
                         isActive ? "bg-brand-500/15 text-text" : `text-text/85 active:bg-text/[0.06] ${rowCls}`
-                      } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
-                      onClick={() => { if (consumeClick()) return; selectRow(s.id); }}
-                      onPointerDown={(e) => armHold(e, s.id, sessions.map((i) => i.id))}
-                      onPointerMove={moveHold}
-                      onPointerUp={clearHold}
-                      onPointerCancel={clearHold}
-                      onPointerLeave={clearHold}
+                      } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"} ${swipeArmed ? "bg-red-500/25" : swipeDx ? "bg-red-500/10" : ""}`}
+                      onClick={() => { if (consumeClick() || consumeSwipe()) return; selectRow(s.id); }}
+                      onPointerDown={(e) => { armHold(e, s.id, sessions.map((i) => i.id)); swipeStart(e, s.id); }}
+                      onPointerMove={(e) => { moveHold(e); swipeMove(e); }}
+                      onPointerUp={(e) => { clearHold(); swipeEnd(e, title); }}
+                      onPointerCancel={(e) => { clearHold(); swipeEnd(e, title); }}
+                      onPointerLeave={(e) => { clearHold(); swipeEnd(e, title); }}
                       onContextMenu={onRowContextMenu ? (e) => onRowContextMenu(e, s.id, title) : undefined}
                       onTouchStart={onRowTouch?.start}
                       onTouchMove={onRowTouch?.move}
@@ -420,6 +498,7 @@ export default function HostTree({
         <NewTerminalModal
           onClose={() => setTermModalWs(null)}
           onCreate={createIn}
+          initialTab={termModalTab}
           shells={shells}
           busRef={busTag}
           hostKey={host.key}
@@ -455,9 +534,11 @@ export default function HostTree({
         <PromptDialog
           title={t("workspaces.rename")}
           value={wsRename.value}
+          placeholder={wsRename.folder || ""}
           onChange={(value) => setWsRename({ ...wsRename, value })}
           onSubmit={() => {
-            const name = wsRename.value.trim();
+            // Clearing the alias falls back to the folder's own name.
+            const name = wsRename.value.trim() || wsRename.folder || "";
             if (name) actions.renameWorkspace?.(wsRename.id, name);
             setWsRename(null);
           }}

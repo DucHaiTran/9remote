@@ -1,12 +1,12 @@
 "use client";
 
-import { ChevronRight, Folder, GitFork, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
+import { ChevronRight, Folder, GitFork, History, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import IconMenu from "@/shared/components/ui/IconMenu";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { useWorkspaceChangedCount } from "../hooks/useWorkspaceChangedCount";
-import { workspaceGitPath } from "../lib/workspaceGrouping";
+import { workspaceGitPath, workspaceFolderName } from "../lib/workspaceGrouping";
 import { isDefaultBranch } from "../constants/terminalConfig";
 import { statusCounts, statusVisual } from "@/shared/utils/statusVisual";
 import BranchBadge from "./BranchBadge";
@@ -24,6 +24,8 @@ export default function WorkspaceHeader({
   onToggleCollapse, onSelect, onNewTerminal, onDelete, onRename,
   onAddWorkspace = null,
   onOpenGraph = null,
+  onOpenHistory = null,
+  dragHandlers = null,
   statusMap = null,
   mobile = false
 }) {
@@ -35,6 +37,9 @@ export default function WorkspaceHeader({
   // Dirty dot is derived from the same count snapshot as the pane and git panel badges.
   const { count } = useWorkspaceChangedCount(gitPath, fileBus, { enabled: !!fileBus });
   const dirty = count > 0;
+  // A renamed workspace is an alias: its folder still shows beside it.
+  const folder = workspaceFolderName(workspace);
+  const aliasOf = folder && folder.toLowerCase() !== (workspace.name || "").toLowerCase() ? folder : null;
   // A closed workspace still has to answer "what's running in here?" — one dot per
   // present state, in the same language as a session row's dot.
   const rolled = !collapsed
@@ -47,7 +52,8 @@ export default function WorkspaceHeader({
   return (
     <div
       onClick={rowClick}
-      className={`relative pr-2 flex items-center gap-1.5 group group/grp transition-colors ${
+      {...(dragHandlers || {})}
+      className={`relative pr-2 flex items-center gap-1.5 group group/grp transition-colors select-none ${dragHandlers ? "touch-pan-y" : ""} ${
         mobile ? "py-1 mt-1" : "py-1.5"
       } ${rowClick ? "cursor-pointer hover:bg-text/[0.06]" : ""}`}
     >
@@ -71,6 +77,14 @@ export default function WorkspaceHeader({
           >
             {workspace.name}
           </span>
+          {aliasOf && (
+            <span
+              className={`${mobile ? "text-[12px]" : "text-[11px]"} text-text-subtle truncate min-w-0 flex-shrink`}
+              data-tip={workspace.path || aliasOf}
+            >
+              {aliasOf}
+            </span>
+          )}
           {rolled.map(({ state, count }) => {
             const v = statusVisual(state);
             return (
@@ -106,6 +120,18 @@ export default function WorkspaceHeader({
             aria-label={t("git.openGitGraph")}
           >
             <GitFork size={mobile ? 18 : 13.5} />
+          </button>
+        )}
+        {onOpenHistory && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); vibrate(); onOpenHistory(); }}
+            disabled={!connected}
+            className={`${mobile ? "p-1.5" : "p-0.5"} text-text-subtle hover:text-text rounded-[2px] transition-colors disabled:opacity-40`}
+            title={t("agentHistory.title")}
+            aria-label={t("agentHistory.title")}
+          >
+            <History size={mobile ? 18 : 13.5} />
           </button>
         )}
         {onNewTerminal && (

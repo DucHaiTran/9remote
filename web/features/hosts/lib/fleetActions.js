@@ -90,6 +90,9 @@ export function makeFleetActions(host, { onSelectSession = null, onSelectWorkspa
     renameWorkspace: (workspaceId, name) => {
       bus()?.emit("renameWorkspace", { workspaceId, name }, () => {});
     },
+    reorderWorkspaces: (orderedIds) => {
+      bus()?.emit("reorderWorkspaces", { orderedIds }, () => {});
+    },
     deleteWorkspace: (workspaceId) => {
       bus()?.emit("deleteWorkspace", { workspaceId }, () => {});
     }

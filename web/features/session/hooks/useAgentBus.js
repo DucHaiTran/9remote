@@ -399,6 +399,10 @@ export function useAgentBus() {
     busRef.current?.emit("reorderSession", { orderedIds }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
   }, [busRef, refreshLists]);
 
+  const reorderWorkspaces = useCallback((orderedIds, callback) => {
+    busRef.current?.emit("reorderWorkspaces", { orderedIds }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
+  }, [busRef, refreshLists]);
+
   const getShells = useCallback((callback) => {
     if (!busRef.current) return;
     busRef.current.emit("getShells", (result) => callback?.(result));
@@ -452,6 +456,7 @@ export function useAgentBus() {
     deleteWorkspace,
     setWorkspaceHiddenRepos,
     moveSession,
-    reorderSession
+    reorderSession,
+    reorderWorkspaces
   };
 }

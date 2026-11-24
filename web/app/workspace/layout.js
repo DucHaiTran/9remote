@@ -250,7 +250,7 @@ export default function WorkspaceLayout({ children }) {
       window.removeEventListener("contextmenu", onContextMenu);
     };
   }, []);
-  const { bus, busRef, protocolRef, disconnect, reconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, platform, hostVersion, agentVersion, retryStatus, approvalStatus, admitted, hostOffline, loadSessions, createSession, deleteSession, renameSession, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
+  const { bus, busRef, protocolRef, disconnect, reconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, platform, hostVersion, agentVersion, retryStatus, approvalStatus, admitted, hostOffline, loadSessions, createSession, deleteSession, renameSession, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession, reorderWorkspaces } = useAgentBus();
   // Fleet: one background bus per saved host other than the current one; the
   // mobile home shows the fleet overview until the user enters a host (focus).
   const { loadKeys, saveKey, renameKey, removeKey } = useApiKeyStorage();
@@ -1120,6 +1120,7 @@ export default function WorkspaceLayout({ children }) {
             onRenameWorkspace={renameWorkspace}
             onDeleteWorkspace={deleteWorkspace}
             onReorderSession={handleReorderSession}
+            onReorderWorkspaces={reorderWorkspaces}
             recentWorkspaces={recentWorkspaces}
             shells={shells}
             onRenameHost={handleRenameHost}
@@ -1190,6 +1191,7 @@ export default function WorkspaceLayout({ children }) {
             onLogout={handleLogoutWithConfirm}
             onDeleteWorkspace={deleteWorkspace}
             onReorderSession={reorderSession}
+            onReorderWorkspaces={reorderWorkspaces}
             onAddWorkspace={openFolderPicker}
             onSetHiddenRepos={setWorkspaceHiddenRepos}
             onOpenSettings={openSlideMenu}

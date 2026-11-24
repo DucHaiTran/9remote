@@ -36,7 +36,7 @@ export default function SessionList({
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
   onOpenRemoteHost = null,
   onOpenMobileHost = null,
-  fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession,
+  fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession, onReorderWorkspaces = null,
   onRenameHost = null, onDeleteHost = null, onMainDisconnect = null, onMainReconnect = null
 }) {
   const { t } = useI18n();
@@ -220,6 +220,7 @@ export default function SessionList({
                     deleteSession: onDelete,
                     backgroundSession: (s) => setBgTarget(s),
                     reorderSession: onReorderSession,
+                    reorderWorkspaces: onReorderWorkspaces,
                     renameWorkspace: onRenameWorkspace,
                     deleteWorkspace: onDeleteWorkspace,
                     renameHost: onRenameHost,

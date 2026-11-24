@@ -34,6 +34,11 @@ export const MAX_LIVE_PANES = 12;
 // moving to arm, and cancel the hold past this much movement (it's a scroll).
 export const DRAG_HOLD_MS = 250;
 export const DRAG_MOVE_TOLERANCE_PX = 8;
+// Dragging near the list's top/bottom edge scrolls it; the step grows the closer the finger gets.
+export const DRAG_AUTOSCROLL = { edgePx: 64, maxStepPx: 16 };
+// Swiping a session row leftwards (mobile list) asks to close it: the row follows the finger
+// once the move is clearly sideways, and a release past closePx opens the confirm.
+export const SESSION_SWIPE = { startPx: 14, closePx: 90, maxPx: 140, ratio: 1.5 };
 
 export const SIDEBAR_WIDTH = { default: 190, min: 180, max: Infinity };
 export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
