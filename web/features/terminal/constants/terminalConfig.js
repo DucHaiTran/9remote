@@ -228,6 +228,9 @@ export const QUIET_PROBE_AFTER_MS = 5000;
 export const QUIET_PROBE_POLL_MS = 2000;
 export const JOIN_ACK_TIMEOUT_MS = 8000;
 export const AGENT_CLIS_TTL_MS = 60000;
+// A request sent while the bus is still connecting gets no reply; ask again this often, this many times.
+export const AGENT_CLIS_RETRY_MS = 1500;
+export const AGENT_CLIS_MAX_RETRIES = 5;
 export const AGENT_HISTORY_TTL_MS = 30000;
 export const AGENT_HISTORY_ROWS = 40;
 export const AGENT_HISTORY_MAX_HEIGHT = "28%";
