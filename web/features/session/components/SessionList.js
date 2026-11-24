@@ -21,6 +21,8 @@ import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import { reloadWhenHostReady } from "@/shared/utils/hostReady";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
+import { useAppName } from "@/shared/hooks/useAppName";
+import { appVariant } from "@/shared/constants/appName";
 
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
@@ -132,6 +134,7 @@ export default function SessionList({
   // Multi-host skips this stage so the user sees the fleet instead. A running
   // update outranks the poster — its progress must stay visible.
   const anyUpdating = fleetHosts.some((h) => h.updating);
+  const appName = useAppName();
   const showWelcomeStage = !anyUpdating && !sessions.length && !workspaces.length && fleetHosts.length <= 1;
 
   return (
@@ -147,6 +150,9 @@ export default function SessionList({
         <div className="flex items-center gap-3 min-w-0">
           <img src="/icon-192.png" alt="9Remote" draggable={false} className="w-5 h-5 rounded-brand flex-shrink-0" />
           <h1 className="text-text text-lg font-semibold truncate">{t("sessions.headerTitle")}</h1>
+          <span title={appName} className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-brand-500/15 text-brand-500 flex-shrink-0">
+            {appVariant(appName)} {process.env.NEXT_PUBLIC_SERVER_VERSION}
+          </span>
           <span
             className={`w-2 h-2 rounded-full flex-shrink-0 ${connected ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
             title={connected ? t("sessions.connected") : t("sessions.disconnected")}

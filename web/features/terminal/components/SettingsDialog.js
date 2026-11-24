@@ -34,6 +34,7 @@ import { useHostLocalSettings } from "@/features/terminal/hooks/useAgentLocalSet
 import { useVoiceStore } from "@/shared/stores/voiceStore";
 import { useLogStore } from "@/shared/stores/logStore";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import { useAppName } from "@/shared/hooks/useAppName";
 
 const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor, Mic, Bug, Globe, Link2 };
 
@@ -77,6 +78,7 @@ export default function SettingsDialog({
   // Plugins tab is not gated on MCP support: it also hosts the client-side voice config.
 
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
+  const appName = useAppName();
   const hostVersion = context.hostVersion || context.agentVersion;
   const hideActions = useMemo(() => context.hideActions || [], [context.hideActions]);
   const isApp = typeof window !== "undefined" && (
@@ -176,7 +178,7 @@ export default function SettingsDialog({
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">LAN</span>
             )}
             <p className="text-text-muted text-xs truncate">
-              {webVersion}{hostVersion ? ` / ${hostVersion}` : ""}
+              {appName} · {webVersion}{hostVersion ? ` / ${hostVersion}` : ""}
             </p>
           </div>
         </nav>

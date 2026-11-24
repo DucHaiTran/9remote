@@ -22,6 +22,7 @@ import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 import Collapse from "@/shared/components/ui/Collapse";
+import { useAppName } from "@/shared/hooks/useAppName";
 
 
 // ---- Grouped settings shell (9love's settings screen) -----------------------
@@ -181,6 +182,7 @@ export default function MenuItems({
   // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
   useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
+  const appName = useAppName();
 
   const push = usePushToggle(subscribeToPush, unsubscribeFromPush);
   const artifact = useArtifactToggle(busRef, connected);
@@ -532,7 +534,7 @@ export default function MenuItems({
           </span>
         )}
         <p className="text-text-muted text-[12px]">
-          {t("menu.version")} {webVersion}{(hostVersion || agentVersion) ? ` / 9Remote ${hostVersion || agentVersion}` : ""}
+          {appName} · {t("menu.version")} {webVersion}{(hostVersion || agentVersion) ? ` / 9Remote ${hostVersion || agentVersion}` : ""}
         </p>
       </div>
     </div>

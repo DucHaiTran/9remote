@@ -38,6 +38,7 @@ import { AI_UI_OPTIONS, chatCanvasStyle } from "@/features/ai/constants";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import TerminalWorkspace from "@/features/terminal/components/TerminalWorkspace";
 import ReconnectScreen from "@/features/session/components/ReconnectScreen";
+import AppVariantBadge from "@/shared/components/ui/AppVariantBadge";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
@@ -1499,6 +1500,7 @@ export default function WorkspaceLayout({ children }) {
       <div hidden><Suspense fallback={null}>{children}</Suspense></div>
       {/* Dev-only termLog overlay (hidden in production) — mobile has no DevTools. */}
       <DevTermLog />
+      <AppVariantBadge />
     </>
   );
 }
