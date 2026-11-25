@@ -162,13 +162,15 @@ export default function HostTree({
     if (Math.abs(e.clientX - h.start.x) > DRAG_MOVE_TOLERANCE_PX || Math.abs(e.clientY - h.start.y) > DRAG_MOVE_TOLERANCE_PX) clearHold();
   };
   // While a drag is live, touch scrolling must not fight the transform
-  // Mobile row swipe: one touch at a time, so one ref and one offset serve every row.
-  const swipeRef = useRef(null); // {id, x, y, active}
+  // Mobile row swipe: left asks to close the session, right marks a finished one as seen.
+  // One touch at a time, so one ref and one offset serve every row.
+  const swipeRef = useRef(null); // {id, x, y, active, canClose, canRead}
   const swipedRef = useRef(false); // the release that ended a swipe must not also select the row
   const [swipe, setSwipe] = useState(null); // {id, dx} while a row follows the finger
-  const swipeStart = (e, id) => {
-    if (!mobile || e.pointerType === "mouse" || !actions.deleteSession) return;
-    swipeRef.current = { id, x: e.clientX, y: e.clientY, active: false };
+  const swipeStart = (e, id, canRead) => {
+    const canClose = !!actions.deleteSession;
+    if (!mobile || e.pointerType === "mouse" || (!canClose && !canRead)) return;
+    swipeRef.current = { id, x: e.clientX, y: e.clientY, active: false, canClose, canRead };
   };
   const swipeMove = (e) => {
     const s = swipeRef.current;
@@ -177,11 +179,15 @@ export default function HostTree({
     const dy = e.clientY - s.y;
     if (!s.active) {
       if (Math.abs(dy) > DRAG_MOVE_TOLERANCE_PX && Math.abs(dy) >= Math.abs(dx)) { swipeRef.current = null; return; }
-      if (dx > -SESSION_SWIPE.startPx || Math.abs(dx) < Math.abs(dy) * SESSION_SWIPE.ratio) return;
+      if (Math.abs(dx) < SESSION_SWIPE.startPx || Math.abs(dx) < Math.abs(dy) * SESSION_SWIPE.ratio) return;
+      // A direction with nothing to do never starts: a running session does not slide right.
+      if (dx < 0 ? !s.canClose : !s.canRead) { swipeRef.current = null; return; }
       s.active = true;
       clearHold();
     }
-    setSwipe({ id: s.id, dx: Math.max(-SESSION_SWIPE.maxPx, Math.min(0, dx)) });
+    const min = s.canClose ? -SESSION_SWIPE.maxPx : 0;
+    const max = s.canRead ? SESSION_SWIPE.maxPx : 0;
+    setSwipe({ id: s.id, dx: Math.max(min, Math.min(max, dx)) });
   };
   const swipeEnd = (e, name) => {
     const s = swipeRef.current;
@@ -189,9 +195,14 @@ export default function HostTree({
     if (!s?.active) return;
     swipedRef.current = true;
     setSwipe(null);
-    if (e.type === "pointerup" && s.x - e.clientX >= SESSION_SWIPE.closePx) {
+    if (e.type !== "pointerup") return;
+    const dx = e.clientX - s.x;
+    if (s.canClose && dx <= -SESSION_SWIPE.closePx) {
       vibrate();
       setSessDelete({ id: s.id, name });
+    } else if (s.canRead && dx >= SESSION_SWIPE.closePx) {
+      vibrate();
+      useNotificationStore.getState().clearNotification(s.id);
     }
   };
   const consumeSwipe = () => {
@@ -324,18 +335,23 @@ export default function HostTree({
                   const hidden = hiddenPaneSessionIds.includes(s.id);
                   const title = s.name || t("terminal.defaultName");
                   const swipeDx = swipe?.id === s.id ? swipe.dx : 0;
-                  const swipeArmed = swipeDx <= -SESSION_SWIPE.closePx;
+                  // Same rule as the row menu: only a finished terminal has a badge to clear.
+                  const canMarkRead = st === "done";
+                  const swipeTint = swipeDx <= -SESSION_SWIPE.closePx ? "bg-red-500/25"
+                    : swipeDx < 0 ? "bg-red-500/10"
+                    : swipeDx >= SESSION_SWIPE.closePx ? "bg-green-500/25"
+                    : swipeDx > 0 ? "bg-green-500/10" : "";
                   return (
                     <Fragment key={s.id}>
                     <div
                       ref={registerEl(s.id)}
                       data-sid={s.id}
                       style={mobile ? { "--i": String(Math.min(i, 6)), ...(swipeDx ? { transform: `translateX(${swipeDx}px)` } : {}) } : undefined}
-                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6 pr-9 list-rise" : "pl-3.5 pr-2"} py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
+                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6 pr-9 list-rise" : "pl-3.5 pr-2"} py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-pan-y ${
                         isActive ? "bg-brand-500/15 text-text" : `text-text/85 active:bg-text/[0.06] ${rowCls}`
-                      } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"} ${swipeArmed ? "bg-red-500/25" : swipeDx ? "bg-red-500/10" : ""}`}
+                      } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"} ${swipeTint}`}
                       onClick={() => { if (consumeClick() || consumeSwipe()) return; selectRow(s.id); }}
-                      onPointerDown={(e) => { armHold(e, s.id, sessions.map((i) => i.id)); swipeStart(e, s.id); }}
+                      onPointerDown={(e) => { armHold(e, s.id, sessions.map((i) => i.id)); swipeStart(e, s.id, canMarkRead); }}
                       onPointerMove={(e) => { moveHold(e); swipeMove(e); }}
                       onPointerUp={(e) => { clearHold(); swipeEnd(e, title); }}
                       onPointerCancel={(e) => { clearHold(); swipeEnd(e, title); }}
@@ -625,7 +641,7 @@ function BrowserTreeRow({ busRef, storeKey, workspaceId, mobile, rowCls, onSelec
     return (
       <div
         key={tab.id}
-        className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y transition-colors ${
+        className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-pan-y transition-colors ${
           isActive ? "bg-brand-500/15 text-text" : `text-text-muted ${rowCls}`
         }`}
         onClick={() => open(tab.id)}

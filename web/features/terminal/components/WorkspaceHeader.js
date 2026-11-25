@@ -40,6 +40,7 @@ export default function WorkspaceHeader({
   // A renamed workspace is an alias: its folder still shows beside it.
   const folder = workspaceFolderName(workspace);
   const aliasOf = folder && folder.toLowerCase() !== (workspace.name || "").toLowerCase() ? folder : null;
+  const showBranch = !!branch && !isDefaultBranch(branch) && branch !== workspace.name;
   // A closed workspace still has to answer "what's running in here?" — one dot per
   // present state, in the same language as a session row's dot.
   const rolled = !collapsed
@@ -77,14 +78,6 @@ export default function WorkspaceHeader({
           >
             {workspace.name}
           </span>
-          {aliasOf && (
-            <span
-              className={`${mobile ? "text-[12px]" : "text-[11px]"} text-text-subtle truncate min-w-0 flex-shrink`}
-              data-tip={workspace.path || aliasOf}
-            >
-              {aliasOf}
-            </span>
-          )}
           {rolled.map(({ state, count }) => {
             const v = statusVisual(state);
             return (
@@ -99,17 +92,25 @@ export default function WorkspaceHeader({
             );
           })}
         </span>
-        {/* Path is dropped and a default branch stays hidden — only an off-default
-            worktree is worth a second line. Never repeats the workspace name. */}
-        {branch && !isDefaultBranch(branch) && branch !== workspace.name && (
-          <span className="text-[10px] text-text-subtle leading-tight flex items-center gap-1 min-w-0">
-            <BranchBadge branch={branch} dirty={dirty} className="truncate flex-shrink-0 max-w-[7rem]" />
+        {/* Second line: the folder behind an alias, then an off-default branch. The path
+            itself is dropped and a default branch stays hidden; neither repeats the name. */}
+        {(aliasOf || showBranch) && (
+          <span className={`${mobile ? "text-[11px]" : "text-[10px]"} text-text-subtle leading-tight flex items-center gap-1.5 min-w-0`}>
+            {aliasOf && (
+              <span className="flex items-center gap-1 min-w-0 truncate" data-tip={workspace.path || aliasOf}>
+                <Folder size={mobile ? 11 : 10} className="flex-shrink-0" />
+                <span className="truncate">{aliasOf}</span>
+              </span>
+            )}
+            {showBranch && <BranchBadge branch={branch} dirty={dirty} className="truncate flex-shrink-0 max-w-[7rem]" />}
           </span>
         )}
       </span>
       {/* New terminal (+) and "..." — the ExplorerRow door: name runs full width,
           hover floats the cluster over its end with a surface backdrop. */}
-      <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1.5 ${mobile ? "opacity-100" : "px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"} transition-opacity`}>
+      {/* Phone: the buttons are always shown, so they take their own room instead of
+          floating over the name (which hid a long alias). */}
+      <div className={`flex items-center ${mobile ? "flex-shrink-0 gap-0.5" : "gap-1.5 absolute right-1 top-1/2 -translate-y-1/2 px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"} transition-opacity`}>
         {onOpenGraph && (
           <button
             type="button"
