@@ -166,7 +166,7 @@ export default function HostTree({
   // One touch at a time, so one ref and one offset serve every row.
   const swipeRef = useRef(null); // {id, x, y, active, canClose, canRead}
   const swipedRef = useRef(false); // the release that ended a swipe must not also select the row
-  const [swipe, setSwipe] = useState(null); // {id, dx} while a row follows the finger
+  const [swipe, setSwipe] = useState(null); // {id, dx, settling} while a row follows the finger or glides back
   const swipeStart = (e, id, canRead) => {
     const canClose = !!actions.deleteSession;
     if (!mobile || e.pointerType === "mouse" || (!canClose && !canRead)) return;
@@ -194,7 +194,9 @@ export default function HostTree({
     swipeRef.current = null;
     if (!s?.active) return;
     swipedRef.current = true;
-    setSwipe(null);
+    // Glide home: the row keeps its offset for one frame with a transition on, then drops it.
+    setSwipe((cur) => (cur?.id === s.id ? { id: s.id, dx: 0, settling: true } : cur));
+    setTimeout(() => setSwipe((cur) => (cur?.id === s.id && cur.settling ? null : cur)), SESSION_SWIPE.settleMs);
     if (e.type !== "pointerup") return;
     const dx = e.clientX - s.x;
     if (s.canClose && dx <= -SESSION_SWIPE.closePx) {
@@ -335,21 +337,40 @@ export default function HostTree({
                   const hidden = hiddenPaneSessionIds.includes(s.id);
                   const title = s.name || t("terminal.defaultName");
                   const swipeDx = swipe?.id === s.id ? swipe.dx : 0;
+                  const sliding = swipe?.id === s.id;
+                  const settling = sliding && !!swipe.settling;
                   // Same rule as the row menu: only a finished terminal has a badge to clear.
                   const canMarkRead = st === "done";
-                  const swipeTint = swipeDx <= -SESSION_SWIPE.closePx ? "bg-red-500/25"
-                    : swipeDx < 0 ? "bg-red-500/10"
-                    : swipeDx >= SESSION_SWIPE.closePx ? "bg-green-500/25"
-                    : swipeDx > 0 ? "bg-green-500/10" : "";
+                  const swipeArmed = Math.abs(swipeDx) >= SESSION_SWIPE.closePx;
                   return (
                     <Fragment key={s.id}>
+                    <div className={`relative ${sliding ? "overflow-hidden rounded-[3px]" : ""}`}>
+                    {sliding && (
+                      <div
+                        aria-hidden="true"
+                        className={`absolute inset-0 flex items-center px-5 text-white ${swipeDx > 0 ? "justify-start bg-green-600/85" : "justify-end bg-red-600/85"}`}
+                      >
+                        <span className={`flex items-center gap-1.5 text-[13px] font-medium transition-transform ${swipeArmed ? "scale-110" : "scale-90 opacity-80"}`}>
+                          {swipeDx > 0 ? <Check size={16} /> : <Trash2 size={16} />}
+                          {swipeDx > 0 ? t("sessions.markRead") : t("sessions.deleteTitle")}
+                        </span>
+                      </div>
+                    )}
                     <div
                       ref={registerEl(s.id)}
                       data-sid={s.id}
-                      style={mobile ? { "--i": String(Math.min(i, 6)), ...(swipeDx ? { transform: `translateX(${swipeDx}px)` } : {}) } : undefined}
+                      style={mobile ? {
+                        "--i": String(Math.min(i, 6)),
+                        ...(sliding ? {
+                          animation: "none",
+                          transform: `translateX(${swipeDx}px)`,
+                          transition: settling ? `transform ${SESSION_SWIPE.settleMs}ms ease-out` : "none"
+                        } : {})
+                      } : undefined}
                       className={`group flex items-center gap-1.5 ${mobile ? "pl-6 pr-9 list-rise" : "pl-3.5 pr-2"} py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-pan-y ${
-                        isActive ? "bg-brand-500/15 text-text" : `text-text/85 active:bg-text/[0.06] ${rowCls}`
-                      } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"} ${swipeTint}`}
+                        // Sliding: an opaque face, so the action layer shows only where the row has moved off.
+                        sliding ? "text-text" : isActive ? "bg-brand-500/15 text-text" : `text-text/85 active:bg-text/[0.06] ${rowCls}`
+                      } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"} ${sliding ? (isActive ? "bg-[color-mix(in_srgb,var(--color-brand-500)_15%,var(--surface))]" : "bg-surface") : ""}`}
                       onClick={() => { if (consumeClick() || consumeSwipe()) return; selectRow(s.id); }}
                       onPointerDown={(e) => { armHold(e, s.id, sessions.map((i) => i.id)); swipeStart(e, s.id, canMarkRead); }}
                       onPointerMove={(e) => { moveHold(e); swipeMove(e); }}
@@ -448,6 +469,7 @@ export default function HostTree({
                           />
                         )}
                       </div>
+                    </div>
                     </div>
                     {/* Running sub-agents/background shells of this session — temporarily hidden */}
                     {/* <SessionTaskRows

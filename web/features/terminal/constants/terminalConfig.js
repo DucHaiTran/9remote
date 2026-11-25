@@ -38,7 +38,7 @@ export const DRAG_MOVE_TOLERANCE_PX = 8;
 export const DRAG_AUTOSCROLL = { edgePx: 64, maxStepPx: 16 };
 // Swiping a session row (mobile list): left asks to close it, right marks a finished one as
 // seen. The row follows the finger once the move is clearly sideways; a release past closePx acts.
-export const SESSION_SWIPE = { startPx: 14, closePx: 90, maxPx: 140, ratio: 1.5 };
+export const SESSION_SWIPE = { startPx: 14, closePx: 90, maxPx: 140, ratio: 1.5, settleMs: 200 };
 
 export const SIDEBAR_WIDTH = { default: 190, min: 180, max: Infinity };
 export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
