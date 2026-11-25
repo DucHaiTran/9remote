@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Loader2, CloudDownload } from "@/shared/components/ui/Icon";
+import { Loader2, CloudDownload, ArrowUp } from "@/shared/components/ui/Icon";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import FileContextMenu, { FILE_MENU_ICONS } from "@/shared/components/ui/FileContextMenu";
@@ -46,7 +46,8 @@ function GraphCell({ row, width, laneWidth: W, dashed }) {
 
 const REF_STYLE = {
   head: "border-brand-500/50 text-brand-500 bg-brand-500/10",
-  remote: "border-border text-text-muted bg-surface-2",
+  // A step below a local branch (no brand colour), above the grey hash/author/date line.
+  remote: "border-sky-500/40 text-sky-500 bg-sky-500/10",
   tag: "border-amber-500/50 text-amber-500 bg-amber-500/10",
 };
 
@@ -180,7 +181,7 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
     ];
     for (const ref of c.refs) {
       if (ref.type === "head") {
-        items.push({ key: `push:${ref.name}`, label: t("git.pushBranch", { name: ref.name }), icon: I.ExternalLink,
+        items.push({ key: `push:${ref.name}`, label: t("git.pushBranch", { name: ref.name }), icon: ArrowUp,
           onClick: () => setPushing({ source: ref.name, label: ref.name, branch: ref.name }) });
       }
       if (ref.type === "head" && ref.name !== head.branch) {
@@ -199,7 +200,7 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
       }
     }
     items.push(
-      { key: "pushCommit", label: t("git.pushCommit"), icon: I.ExternalLink,
+      { key: "pushCommit", label: t("git.pushCommit"), icon: ArrowUp,
         onClick: () => setPushing({ source: c.hash, label: short(c.hash), branch: head.branch || "" }) },
       { key: "branch", label: t("git.createBranchHere"), icon: I.FileText, onClick: () => askName(t("git.createBranchHere"), (name) => run("createBranch", { hash: c.hash, name }, t("git.branchCreated", { name }))) },
       { key: "tag", label: t("git.createTagHere"), icon: I.FileText, onClick: () => askName(t("git.createTagHere"), (name) => run("createTag", { hash: c.hash, name }, t("git.tagCreated", { name }))) },
