@@ -39,6 +39,7 @@ export const ImageLightbox = memo(function ImageLightbox({ images = [], index = 
     setFailed(false);
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    if (current?.dataUrl) { setSrc(current.dataUrl); return; }
     if (!current?.path || !fileBus?.readMedia) return;
     let live = true;
     fileBus.readMedia(current.path).then((res) => {
@@ -47,7 +48,7 @@ export const ImageLightbox = memo(function ImageLightbox({ images = [], index = 
       else setFailed(true);
     }).catch(() => { if (live) setFailed(true); });
     return () => { live = false; };
-  }, [current?.path, fileBus]);
+  }, [current?.path, current?.dataUrl, fileBus]);
 
   const step = useCallback((delta) => {
     setAt((i) => {

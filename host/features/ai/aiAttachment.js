@@ -14,9 +14,13 @@ try { if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true
 // may never steer the path.
 const safeFilename = (name) => (name || "paste").replace(/[^a-zA-Z0-9._-]/g, "_");
 
-export function stageAttachment({ filename, type, content }) {
+export function stageAttachment(attachment) {
+  const { filename, type, content } = attachment;
   const filePath = path.join(UPLOAD_DIR, `${Date.now()}_${safeFilename(filename)}`);
   fs.writeFileSync(filePath, Buffer.from(content, "base64"));
+  // Noted on the caller's object: the user bubble is emitted after the adapter staged it,
+  // and the path is what lets a client open the picture again (attachmentMeta).
+  attachment.stagedPath = filePath;
   // The path is returned for images too: engines that take an image as a file
   // argument (codex --image, opencode --file) have no other way to name it.
   if (typeof type === "string" && type.startsWith("image/")) {
@@ -41,10 +45,33 @@ export function stagedPaths(staged, includeImages = false) {
 // rides the replay log, which the pane rebuilds in full on every connect.
 export function attachmentMeta(attachments) {
   if (!Array.isArray(attachments) || attachments.length === 0) return null;
-  return attachments.map((a) => ({
-    filename: a.filename || "file",
-    isImage: typeof a.type === "string" && a.type.startsWith("image/")
-  }));
+  return attachments.map((a) => {
+    const isImage = typeof a.type === "string" && a.type.startsWith("image/");
+    return {
+      filename: a.filename || "file",
+      isImage,
+      ...(isImage && a.stagedPath ? { path: a.stagedPath } : {})
+    };
+  });
+}
+
+// A typed turn read back from the CLI's transcript carries its pictures inline as base64.
+// Each is written out once (named by the turn's uuid, so a re-read finds it) and described
+// like a live attachment, so a reopened pane shows the same thumbnails. null when none.
+const REPLAY_IMAGE_DIR = path.join(UPLOAD_DIR, "transcript");
+const IMAGE_EXT_BY_TYPE = { "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp" };
+export function transcriptImageMeta(record) {
+  const content = record?.message?.content;
+  if (!Array.isArray(content)) return null;
+  const blocks = content.filter((c) => c?.type === "image" && c.source?.type === "base64" && c.source.data);
+  if (!blocks.length) return null;
+  fs.mkdirSync(REPLAY_IMAGE_DIR, { recursive: true });
+  return blocks.map((block, i) => {
+    const ext = IMAGE_EXT_BY_TYPE[block.source.media_type] || "jpg";
+    const file = path.join(REPLAY_IMAGE_DIR, `${safeFilename(record.uuid || "turn")}-${i}.${ext}`);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, Buffer.from(block.source.data, "base64"));
+    return { filename: `image-${i + 1}.${ext}`, isImage: true, path: file };
+  });
 }
 
 // Turn a prompt plus staged files into the plain text a non-block CLI takes.

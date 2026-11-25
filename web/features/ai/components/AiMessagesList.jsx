@@ -713,6 +713,7 @@ export const AiMessagesList = memo(function AiMessagesList({
                     onCutLocal={onCutLocal}
                     rewindIndex={rewindIndex.get(first.id)}
                     canRewind={canRewind}
+                    fileBus={fileBus}
                   />
                   <AiTurn
                     messages={rest}

@@ -5,6 +5,7 @@ import os from "os";
 import { isInjectedTurn } from "../terminal/agentHistory.js";
 import { buildEditDiff, DIFF_TOOL_NAMES, collapsePersisted } from "./adapters/claudeAdapter.js";
 import { toolStart, toolResult, asyncHandle, taskNotificationFrom } from "./toolEvent.js";
+import { transcriptImageMeta } from "./aiAttachment.js";
 
 // Untrusted client-supplied id: plain ids only, plus a projects-dir jail below — `..` would otherwise read any file on disk.
 export const CLAUDE_SESSION_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
@@ -68,11 +69,14 @@ export const textOf = (record) => {
   if (Array.isArray(content)) return content.find((c) => c.type === "text")?.text || "";
   return "";
 };
+// A picture sent with no words is still a typed turn.
+const hasImageBlock = (record) => Array.isArray(record?.message?.content)
+  && record.message.content.some((c) => c?.type === "image");
 export const isTypedTurn = (record) => {
   const text = textOf(record);
   // isInjectedTurn is the reader's last word here too — without it the rewind list counted turns the pane never drew.
   return record.type === "user" && !record.isSidechain && !isClaudeInjectedTurn(record)
-    && Boolean(text) && !isInjectedTurn(text);
+    && (Boolean(text) || hasImageBlock(record)) && !isInjectedTurn(text);
 };
 
 // One read of the transcript for every reader that needs it: a record parsed once,
@@ -328,8 +332,9 @@ function buildClaudeEvents(resolved, records, live, startSeq) {
         if (d.type === "user" && d.message && !d.isSidechain && !isClaudeInjectedTurn(d)) {
           // Through textOf: a typed turn may be a plain string, and .find on a string throws.
           const text = textOf(d);
-          if (text && !isInjectedTurn(text)) {
-            events.push({ seq: seq++, event: "user_message", data: { text } });
+          if ((text || hasImageBlock(d)) && !isInjectedTurn(text)) {
+            const attachments = transcriptImageMeta(d);
+            events.push({ seq: seq++, event: "user_message", data: attachments ? { text, attachments } : { text } });
           }
           // A tool result is a `user` record too, and only ever the array form.
           const content = Array.isArray(d.message.content) ? d.message.content : [];

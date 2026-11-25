@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Send, Square, Terminal, FileCode, Folder, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History, Search, AlertCircle, RotateCw } from "@/shared/components/ui/Icon";
+import { Send, Square, Terminal, FileCode, Folder, Zap, ChevronUp, Check, X, Paperclip, Image as ImageIcon, Mic, MicOff, History, Search, AlertCircle, RotateCw } from "@/shared/components/ui/Icon";
 import { ENGINE_INFO, SKIP_BEHAVIOR, SKIP_MESSAGE } from "../constants";
 import { getEngineConfig } from "../registry";
 import { buildSlashItems } from "../lib/slashMenu";
@@ -10,6 +10,7 @@ import { getPathIndex, searchPathIndex } from "../lib/pathIndex";
 import { removePendingWithin } from "../lib/pendingPrompts";
 import { rankPaths, tokenAtCaret, formatMention, pathBase, FUZZY_PATH } from "@/shared/utils/fuzzyPath";
 import { MentionRow } from "./MentionRow";
+import { ImageLightbox } from "./ImageLightbox";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
@@ -122,6 +123,8 @@ export const Composer = memo(function Composer({
     attachments, setAttachments,
     removeAttachment, handleFileUpload, handleAttachPaste
   } = useAttachments({ bus, sessionId });
+  // Staged image open full screen (its attachment id), before it is even sent.
+  const [viewingAttachment, setViewingAttachment] = useState(null);
 
   const [voiceLang] = useVoiceLang(locale);
   const voice = useVoiceInput({
@@ -913,6 +916,18 @@ export const Composer = memo(function Composer({
       )}
 
       <VoicePill voice={voice} onDone={handleVoiceDone} onCancel={handleVoiceCancel} className="mb-1.5" />
+      {viewingAttachment !== null && (() => {
+        const images = attachments.filter((a) => a.isImage);
+        const at = images.findIndex((a) => a.id === viewingAttachment);
+        if (at < 0) return null;
+        return (
+          <ImageLightbox
+            images={images.map((a) => ({ name: a.name, dataUrl: `data:${a.type};base64,${a.content}` }))}
+            index={at}
+            onClose={() => setViewingAttachment(null)}
+          />
+        );
+      })()}
 
       <div className="relative rounded-brand border border-border-composer bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">
         {attachments.length > 0 && (
@@ -920,11 +935,20 @@ export const Composer = memo(function Composer({
             {attachments.map((att) => (
               <div key={att.id} className="relative flex-shrink-0 group">
                 {att.isImage ? (
-                  <img
-                    src={`data:${att.type};base64,${att.content}`}
-                    alt={att.name}
-                    className="w-10 h-10 object-cover rounded border border-border-subtle"
-                  />
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setViewingAttachment(att.id)}
+                    className="block"
+                    title={att.name}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`data:${att.type};base64,${att.content}`}
+                      alt={att.name}
+                      className="w-10 h-10 object-cover rounded border border-border-subtle"
+                    />
+                  </button>
                 ) : (
                   <div className="w-10 h-10 flex flex-col items-center justify-center rounded border border-border-subtle bg-surface-2 px-1">
                     <Paperclip size={12} className="text-text-muted" />
@@ -1158,6 +1182,15 @@ export const Composer = memo(function Composer({
             >
               <Paperclip size={15} />
               <input type="file" multiple onChange={handleFileUpload} className="hidden" accept="*/*" />
+            </label>
+            {/* image/* alone makes phones open their photo picker or gallery app; the
+                paperclip's any-file chooser only offers files and the camera. */}
+            <label
+              className="p-1.5 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer flex items-center justify-center"
+              title="Attach photos from the gallery"
+            >
+              <ImageIcon size={15} />
+              <input type="file" multiple onChange={handleFileUpload} className="hidden" accept="image/*" />
             </label>
 
             {voice.active && (

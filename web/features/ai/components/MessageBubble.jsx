@@ -5,6 +5,7 @@ import { Pencil, Paperclip, Image as ImageIcon, Copy, Check, X, Loader2 } from "
 import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import { TurnImageThumb } from "./TurnImages";
 
 export const MessageBubble = memo(function MessageBubble({
   message,
@@ -15,7 +16,8 @@ export const MessageBubble = memo(function MessageBubble({
   onPreviewRewind,
   onCutLocal,
   rewindIndex = null,
-  canRewind = false
+  canRewind = false,
+  fileBus = null
 }) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -27,6 +29,8 @@ export const MessageBubble = memo(function MessageBubble({
   const [phase, setPhase] = useState(null); // null | "preview" | "apply"
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
   const { id, role, content, thinking, diffs = [], tools = [], permission = null, isLive = false, attachments = [] } = message;
+  const viewable = attachments.filter((a) => a.isImage && a.path);
+  const viewableImages = viewable.map((a) => ({ path: a.path, name: a.filename }));
   const handleCopyAll = () => {
     vibrate();
     if (!content) return;
@@ -173,19 +177,31 @@ export const MessageBubble = memo(function MessageBubble({
                 icon is what says an image was sent, since there is no thumbnail. */}
             {attachments.length > 0 && (
               <div className="flex flex-wrap justify-end gap-1.5">
-                {attachments.map((att, i) => (
-                  <span
-                    key={`${att.filename}-${i}`}
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
-                      att.isImage
-                        ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
-                        : "border-border-subtle bg-surface-2 text-text-muted"
-                    }`}
-                  >
-                    {att.isImage ? <ImageIcon size={10} /> : <Paperclip size={10} />}
-                    <span className="max-w-[160px] truncate">{att.filename}</span>
-                  </span>
-                ))}
+                {attachments.map((att, i) => {
+                  // A sent image the host kept a file for shows its thumbnail (tap to view).
+                  const viewAt = att.isImage && att.path && fileBus ? viewable.indexOf(att) : -1;
+                  if (viewAt >= 0) {
+                    return (
+                      <span key={`${att.filename}-${i}`} className="flex flex-col items-end gap-0.5">
+                        <TurnImageThumb img={viewableImages[viewAt]} fileBus={fileBus} images={viewableImages} index={viewAt} />
+                        <span className="max-w-[120px] truncate text-[10px] text-text-subtle">{att.filename}</span>
+                      </span>
+                    );
+                  }
+                  return (
+                    <span
+                      key={`${att.filename}-${i}`}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                        att.isImage
+                          ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
+                          : "border-border-subtle bg-surface-2 text-text-muted"
+                      }`}
+                    >
+                      {att.isImage ? <ImageIcon size={10} /> : <Paperclip size={10} />}
+                      <span className="max-w-[160px] truncate">{att.filename}</span>
+                    </span>
+                  );
+                })}
               </div>
             )}
             {content && (
