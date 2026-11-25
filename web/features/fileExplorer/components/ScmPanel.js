@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useEffect, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, GitBranch, Plus, Minus, Undo2, RefreshCw, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown, CloudDownload, EyeOff, Folder, FolderOpen, List, ListTree } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronRight, GitBranch, Plus, Minus, Undo2, RefreshCw, ExternalLink, MoreHorizontal, ArrowUp, ArrowDown, CloudDownload, Globe, EyeOff, Folder, FolderOpen, List, ListTree } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
@@ -10,6 +10,8 @@ import useIsTouch from "@/shared/hooks/useIsTouch.js";
 import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, GIT_AUTO_REFRESH_EVENTS, GIT_STATUS_DEBOUNCE_MS, SCM_RENDER_CHUNK, SCM_RENDER_STEP, SCM_VIEW_MODE_KEY, SCM_VIEW_MODES, SCM_TREE_INDENT, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import { commitSummary, pushSummary, pullSummary } from "../lib/gitOutput.js";
+import GitPushDialog from "./GitPushDialog";
+import GitRemotesDialog from "./GitRemotesDialog";
 import { addToGitignore } from "../lib/gitignore.js";
 import { splitScmFiles, buildScmTree } from "../lib/scmEntries.js";
 
@@ -295,17 +297,26 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, onOpenDiff, o
     setConfirmAutoStageOpen(true);
   }, [commitMsg, files, staged, commit]);
 
+  const [pushDialog, setPushDialog] = useState(null); // { upstreamDefault } while open
+  const [remotesOpen, setRemotesOpen] = useState(false);
+
   const handlePush = useCallback(async () => {
     if (!workspace) return;
     setLoading(true);
     setResult(null);
     const res = await fileBus.gitPush?.(workspace);
     setLoading(false);
+    // A branch with no upstream yet: ask where to push it instead of only showing git's refusal.
+    const text = `${res?.output || ""}\n${res?.error || ""}`;
+    if (!res?.success && branch && /no upstream branch|has no upstream|No configured push destination/i.test(text)) {
+      setPushDialog({ upstreamDefault: true });
+      return;
+    }
     setResult(res?.success
       ? { ok: true, text: pushSummary(t, res.output) }
       : { ok: false, text: res?.output || res?.error || t("git.pushFailed") });
     reload();
-  }, [workspace, fileBus, reload, t]);
+  }, [workspace, fileBus, reload, t, branch]);
 
   const handlePull = useCallback(async () => {
     if (!workspace) return;
@@ -603,13 +614,28 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, onOpenDiff, o
           y={moreMenu.y}
           items={[
             { key: "push", label: t("git.push"), icon: ArrowUp, onClick: handlePush },
+            { key: "pushTo", label: t("git.pushTo"), icon: ArrowUp, disabled: !branch, onClick: () => setPushDialog({ upstreamDefault: false }) },
             { key: "fetch", label: t("git.fetch"), icon: CloudDownload, onClick: handleFetch },
             { key: "pull", label: t("git.pull"), icon: ArrowDown, onClick: handlePull },
-            { key: "stageAll", label: t("git.stageAll"), icon: Plus, disabled: !files.length, onClick: stageAll }
+            { key: "stageAll", label: t("git.stageAll"), icon: Plus, disabled: !files.length, onClick: stageAll },
+            { key: "remotes", label: t("git.manageRemotes"), icon: Globe, onClick: () => setRemotesOpen(true) }
           ]}
           onClose={() => setMoreMenu(null)}
         />
       )}
+      {pushDialog && branch && (
+        <GitPushDialog
+          workspace={workspace}
+          fileBus={fileBus}
+          source={branch}
+          label={branch}
+          branch={branch}
+          upstreamDefault={pushDialog.upstreamDefault}
+          onClose={() => setPushDialog(null)}
+          onPushed={(text) => { setResult({ ok: true, text }); reload(); }}
+        />
+      )}
+      {remotesOpen && <GitRemotesDialog workspace={workspace} fileBus={fileBus} onClose={() => setRemotesOpen(false)} />}
     </div>
   );
 }

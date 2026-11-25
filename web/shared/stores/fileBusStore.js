@@ -265,10 +265,24 @@ export function makeFileBus(getBus, getProtocol = () => null, getLiveBus = getBu
     bus.emit("gitCommit", { repoPath, message }, resolve);
   }),
 
-  gitPush: (repoPath) => new Promise((resolve) => {
+  // opts: { remote, ref, branch, setUpstream, forceWithLease } — none = plain `git push`.
+  gitPush: (repoPath, opts = {}) => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });
-    bus.emit("gitPush", { repoPath }, resolve);
+    bus.emit("gitPush", { repoPath, ...opts }, resolve);
+  }),
+
+  gitRemoteList: (repoPath) => new Promise((resolve) => {
+    const bus = getBus();
+    if (!bus) return resolve({ success: false, error: "Not connected" });
+    bus.emit("gitRemoteList", { repoPath }, resolve);
+  }),
+
+  // action: add | setUrl | rename | remove; payload: { name, url, newName }
+  gitRemoteEdit: (repoPath, action, payload) => new Promise((resolve) => {
+    const bus = getBus();
+    if (!bus) return resolve({ success: false, error: "Not connected" });
+    bus.emit("gitRemoteEdit", { repoPath, action, ...payload }, resolve);
   }),
 
   gitPull: (repoPath) => new Promise((resolve) => {

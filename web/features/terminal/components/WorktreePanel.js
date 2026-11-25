@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { GitBranch, GitFork, Plus, Trash2, Terminal, Search, Loader2, X } from "@/shared/components/ui/Icon";
+import { ArrowUp, GitBranch, GitFork, Plus, Trash2, Terminal, Search, Loader2, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
+import GitPushDialog from "@/features/fileExplorer/components/GitPushDialog";
 import { refreshWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { shortenHomePath, suggestWorktreePath } from "../lib/workspaceGrouping";
 
@@ -23,6 +24,7 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
   const [error, setError] = useState(null);
   const [removeTarget, setRemoveTarget] = useState(null); // { path, busy: [] }
   const [addTarget, setAddTarget] = useState(null);       // { branch, path }
+  const [pushBranch, setPushBranch] = useState(null);     // branch row whose push dialog is open
 
   const load = useCallback(async () => {
     if (!workspacePath || !fileBus?.gitBranchList) return;
@@ -173,6 +175,15 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
             >
               {b.name}
             </button>
+            {!b.isRemote && (
+              <button
+                onClick={() => { vibrate(); setPushBranch(b); }}
+                className={`p-0.5 text-text-subtle hover:text-brand-500 transition-colors flex-shrink-0 ${revealCls}`}
+                title={t("git.pushBranch", { name: b.name })}
+              >
+                <ArrowUp size={12} />
+              </button>
+            )}
             {b.checkedOut ? (
               <span className="text-[10px] text-text-subtle flex-shrink-0">{t("workspaces.checkedOut")}</span>
             ) : (
@@ -192,6 +203,19 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
           </p>
         )}
       </div>
+
+      {pushBranch && (
+        <GitPushDialog
+          workspace={workspacePath}
+          fileBus={fileBus}
+          source={pushBranch.name}
+          label={pushBranch.name}
+          branch={pushBranch.name}
+          upstreamDefault={!pushBranch.upstream}
+          onClose={() => setPushBranch(null)}
+          onPushed={() => load()}
+        />
+      )}
 
       {/* Add worktree */}
       {addTarget && createPortal(

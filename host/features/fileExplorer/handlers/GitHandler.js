@@ -11,6 +11,7 @@ import { listSessionRoots } from "../../terminal/terminalSocket.js";
 import { destroySessionById } from "../../terminal/handlers/SessionHandler.js";
 import { getSessionAgent } from "../../terminal/statusManager.js";
 import { findGitRoot } from "../../terminal/workspaceMigration.js";
+import { isHash, isRefName, isRemoteName, isRemoteUrl } from "./gitArgs.js";
 
 // Per-cwd TTL cache for gitChangedCount badge — prevents repeated git spawns on
 // rapid requests (e.g. terminal typing re-rendering the file watcher effect).
@@ -56,10 +57,10 @@ function resolveGitBin() {
 }
 const GIT_BIN = resolveGitBin();
 
-export function runGit(args, cwd) {
+export function runGit(args, cwd, extraEnv = null) {
   return new Promise((resolve) => {
     if (!GIT_BIN) return resolve({ code: -1, stdout: "", stderr: GIT_BIN_NOT_FOUND });
-    const child = spawn(GIT_BIN, args, { cwd, windowsHide: true });
+    const child = spawn(GIT_BIN, args, { cwd, windowsHide: true, ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}) });
     let stdout = "", stderr = "";
     child.stdout.on("data", (d) => { stdout += d.toString(); });
     child.stderr.on("data", (d) => { stderr += d.toString(); });
@@ -386,12 +387,69 @@ export function setupGitHandlers(socket) {
     }
   });
 
-  socket.on("gitPush", async ({ repoPath }, callback) => {
+  // No remote = plain `git push` (the branch's upstream). With one: push `ref` (a branch, or a
+  // commit hash) to `branch` on it, optionally setting the upstream or forcing with lease.
+  socket.on("gitPush", async ({ repoPath, remote, ref, branch, setUpstream = false, forceWithLease = false } = {}, callback) => {
     try {
-      const r = await runGit(["push"], repoPath);
+      const args = ["push"];
+      if (remote !== undefined && remote !== null) {
+        if (!isRemoteName(remote)) return callback({ success: false, error: "Invalid remote" });
+        const source = ref || branch;
+        const target = branch || ref;
+        if (!(isRefName(source) || isHash(source)) || !isRefName(target)) return callback({ success: false, error: "Invalid branch" });
+        if (setUpstream) args.push("--set-upstream");
+        if (forceWithLease) args.push("--force-with-lease");
+        // A commit pushes to a named branch; a branch pushed under its own name stays a plain ref.
+        args.push(remote, source === target ? source : `${source}:refs/heads/${target}`);
+      }
+      // Credentials can never be typed here: fail fast instead of waiting on a prompt nobody sees.
+      const r = await runGit(args, repoPath, { GIT_TERMINAL_PROMPT: "0" });
       const output = (r.stdout + r.stderr).trim();
       if (r.code !== 0) return callback({ success: false, output, error: r.stderr.trim() });
       callback({ success: true, output });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  socket.on("gitRemoteList", async ({ repoPath } = {}, callback) => {
+    try {
+      const r = await runGit(["remote", "-v"], repoPath);
+      if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
+      // "name<TAB>url (fetch|push)" per line; a remote can push to a different url than it fetches.
+      const byName = new Map();
+      for (const line of r.stdout.split("\n")) {
+        const m = line.match(/^(\S+)\t(\S+) \((fetch|push)\)$/);
+        if (!m) continue;
+        const entry = byName.get(m[1]) || { name: m[1], fetchUrl: "", pushUrl: "" };
+        entry[m[3] === "fetch" ? "fetchUrl" : "pushUrl"] = m[2];
+        byName.set(m[1], entry);
+      }
+      callback({ success: true, remotes: [...byName.values()] });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+
+  // add / set-url / rename / remove, one handler: each is a single `git remote` call.
+  socket.on("gitRemoteEdit", async ({ repoPath, action, name, url, newName } = {}, callback) => {
+    try {
+      if (!isRemoteName(name)) return callback({ success: false, error: "Invalid remote name" });
+      let args;
+      if (action === "add" || action === "setUrl") {
+        if (!isRemoteUrl(url)) return callback({ success: false, error: "Invalid remote URL" });
+        args = action === "add" ? ["remote", "add", name, url] : ["remote", "set-url", name, url];
+      } else if (action === "rename") {
+        if (!isRemoteName(newName)) return callback({ success: false, error: "Invalid remote name" });
+        args = ["remote", "rename", name, newName];
+      } else if (action === "remove") {
+        args = ["remote", "remove", name];
+      } else {
+        return callback({ success: false, error: "Unknown action" });
+      }
+      const r = await runGit(args, repoPath);
+      if (r.code !== 0) return callback({ success: false, error: (r.stderr || r.stdout).trim() || "git failed" });
+      callback({ success: true });
     } catch (error) {
       callback({ success: false, error: error.message });
     }

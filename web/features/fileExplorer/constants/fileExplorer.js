@@ -247,6 +247,8 @@ export const SCM_RENDER_CHUNK = 200;
 export const SCM_RENDER_STEP = 500;
 // Source Control list layout, remembered per browser.
 export const SCM_VIEW_MODE_KEY = "scmViewMode";
+// Remote picked first in the push dialog when the repo has it.
+export const GIT_DEFAULT_REMOTE = "origin";
 export const SCM_VIEW_MODES = { LIST: "list", TREE: "tree" };
 export const SCM_TREE_INDENT = 12;
 

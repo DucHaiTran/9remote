@@ -11,6 +11,7 @@ import { useI18n } from "@/shared/i18n";
 import { GIT_GRAPH_UI, GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
 import { layoutGraph, UNCOMMITTED_HASH } from "../lib/gitGraphLayout.js";
 import GitCommitDetails from "./GitCommitDetails.js";
+import GitPushDialog from "./GitPushDialog";
 import { readGraphCache, writeGraphCache } from "../lib/gitGraphCache.js";
 import { useBackClose } from "@/shared/hooks/useBackClose";
 
@@ -71,6 +72,7 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState(null); // { ok, text }
+  const [pushing, setPushing] = useState(null); // { source, label, branch } while the push dialog is open
   const [branchFilter, setBranchFilter] = useState(cached?.branchFilter || "");
   const [branches, setBranches] = useState(cached?.branches || []);
   const [selected, setSelected] = useState(cached?.selected || null);
@@ -177,6 +179,10 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
       { key: "copySubject", label: t("git.copySubject"), icon: I.FileText, onClick: () => copy(c.subject) },
     ];
     for (const ref of c.refs) {
+      if (ref.type === "head") {
+        items.push({ key: `push:${ref.name}`, label: t("git.pushBranch", { name: ref.name }), icon: I.ExternalLink,
+          onClick: () => setPushing({ source: ref.name, label: ref.name, branch: ref.name }) });
+      }
       if (ref.type === "head" && ref.name !== head.branch) {
         items.push({ key: `co:${ref.name}`, label: t("git.checkoutBranch", { name: ref.name }), icon: I.ExternalLink, onClick: () => checkoutBranch(ref.name, false) });
         if (head.branch) items.push({ key: `mg:${ref.name}`, label: t("git.mergeInto", { name: ref.name, current: head.branch }), icon: I.ExternalLink,
@@ -193,6 +199,8 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
       }
     }
     items.push(
+      { key: "pushCommit", label: t("git.pushCommit"), icon: I.ExternalLink,
+        onClick: () => setPushing({ source: c.hash, label: short(c.hash), branch: head.branch || "" }) },
       { key: "branch", label: t("git.createBranchHere"), icon: I.FileText, onClick: () => askName(t("git.createBranchHere"), (name) => run("createBranch", { hash: c.hash, name }, t("git.branchCreated", { name }))) },
       { key: "tag", label: t("git.createTagHere"), icon: I.FileText, onClick: () => askName(t("git.createTagHere"), (name) => run("createTag", { hash: c.hash, name }, t("git.tagCreated", { name }))) },
       { key: "checkout", label: t("git.checkoutCommit"), icon: I.ExternalLink,
@@ -219,6 +227,17 @@ export default function GitGraphView({ workspace, fileBus, onShowChanges, onChan
   const dialogs = (
     <>
       {menu && <FileContextMenu x={menu.x} y={menu.y} items={menuItems(menu.hash)} onClose={() => setMenu(null)} />}
+      {pushing && (
+        <GitPushDialog
+          workspace={workspace}
+          fileBus={fileBus}
+          source={pushing.source}
+          label={pushing.label}
+          branch={pushing.branch}
+          onClose={() => setPushing(null)}
+          onPushed={(text) => { setNotice({ ok: true, text }); window.dispatchEvent(new CustomEvent(GIT_REFRESH_EVENT)); load(); }}
+        />
+      )}
       <ConfirmDialog isOpen={confirm.isOpen} onClose={() => setConfirm({ isOpen: false })} onConfirm={confirm.onConfirm} title={confirm.title} message={confirm.message} />
       {prompt && (
         <PromptDialog

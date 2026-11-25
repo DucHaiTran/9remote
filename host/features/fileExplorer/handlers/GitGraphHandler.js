@@ -1,12 +1,12 @@
 // Commit graph (Git Graph-style): paged log with parents + refs, commit details, per-commit
 // file diffs, and the ref/commit actions offered from the graph.
 import { runGit } from "./GitHandler.js";
+import { isHash, isRefName } from "./gitArgs.js";
 import { GIT_GRAPH, MAX_GIT_DIFF_SIZE } from "../constants.js";
 import { findGitRoot } from "../../terminal/workspaceMigration.js";
 
 const FIELD = "\x1f";
 const RECORD = "\x1e";
-const HASH_RE = /^[0-9a-f]{4,64}$/i;
 const NOT_A_REPO = "Not a git repository";
 // Git's well-known empty tree ids — the base a root commit is diffed against.
 const EMPTY_TREE = {
@@ -14,9 +14,6 @@ const EMPTY_TREE = {
   sha256: "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
 };
 
-const isHash = (v) => typeof v === "string" && HASH_RE.test(v);
-// Ref names reach git as argv, never a shell — this only keeps them from parsing as options.
-const isRefName = (v) => typeof v === "string" && v.length > 0 && v.length < 256 && !v.startsWith("-") && !/[\s~^:?*[\\\x00-\x1f]/.test(v) && !v.includes("..");
 const failWith = (callback, r) => callback({ success: false, error: (r.stderr || r.stdout).trim() || "git failed" });
 const okOutput = (callback, r) => callback({ success: true, output: (r.stdout + r.stderr).trim() });
 
