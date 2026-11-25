@@ -15,6 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const WEB_DIR = path.join(ROOT, "web");
 const MIRROR_DIR = path.join(WEB_DIR, ".staticBuild");
+const ROOT_VERSION = JSON.parse(fs.readFileSync(path.join(WEB_DIR, "..", "package.json"), "utf-8")).version;
 const OUT_DIR = path.join(WEB_DIR, "out");
 
 // Top-level entries of web/ the mirror must not carry (build output, caches, secrets, other targets).
@@ -60,7 +61,9 @@ export function buildWebStatic() {
   execSync("npx next build --webpack", {
     cwd: MIRROR_DIR,
     stdio: "inherit",
-    env: { ...process.env, STATIC_EXPORT: "1", NODE_ENV: "production" },
+    // The mirror sits one level deeper, so next.config's "../package.json" would read web's own
+    // package; hand it the monorepo's version instead.
+    env: { ...process.env, STATIC_EXPORT: "1", NODE_ENV: "production", NREMOTE_APP_VERSION: ROOT_VERSION },
   });
 
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
