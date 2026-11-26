@@ -18,6 +18,12 @@ import { debugLog } from "@/shared/utils/debugLog";
 const FETCH_COALESCE_MS = 120;
 // Drop duplicate list fetches across carriers (RTC then WS) within freshness window.
 const FETCH_FRESH_MS = 1000;
+// An ack can be dropped on the racy multi-carrier transport, and only the newest list request
+// is ever applied — so an unanswered one is sent again, a couple of times.
+const LIST_ACK_TIMEOUT_MS = 3000;
+const LIST_ACK_RETRIES = 2;
+// A create whose ack never came may still have made the terminal: look at the list again.
+const CREATE_ACK_TIMEOUT_MS = 5000;
 
 // The main host is a fleet host like any other: its data lands in the SAME store
 // entry (single lane for readers). No-op until sync() has settled currentKey.
@@ -105,17 +111,29 @@ export function useAgentBus() {
   const fetchTimerRef = useRef(null);
   const lastFetchAtRef = useRef(0);
 
-  const emitSessions = useCallback((bus) => {
+  const emitSessions = useCallback(function emitSessionsTry(bus, attempt = 0) {
     const seq = ++sessionSeqRef.current;
+    let answered = false;
     bus.emit("getSessions", (list) => {
+      answered = true;
       termLog("diag", `getSessions ack seq=${seq} type=${Array.isArray(list) ? "list" : typeof list} n=${Array.isArray(list) ? list.length : "-"}`);
       if (seq === sessionSeqRef.current) applySessions(list);
     });
+    setTimeout(() => {
+      if (answered || seq !== sessionSeqRef.current || attempt >= LIST_ACK_RETRIES) return;
+      termLog("diag", `getSessions seq=${seq} unanswered → retry ${attempt + 1}`);
+      emitSessionsTry(bus, attempt + 1);
+    }, LIST_ACK_TIMEOUT_MS);
   }, [applySessions]);
 
-  const emitWorkspaces = useCallback((bus) => {
+  const emitWorkspaces = useCallback(function emitWorkspacesTry(bus, attempt = 0) {
     const seq = ++workspaceSeqRef.current;
-    bus.emit("getWorkspaces", (list) => { if (seq === workspaceSeqRef.current) applyWorkspaces(list); });
+    let answered = false;
+    bus.emit("getWorkspaces", (list) => { answered = true; if (seq === workspaceSeqRef.current) applyWorkspaces(list); });
+    setTimeout(() => {
+      if (answered || seq !== workspaceSeqRef.current || attempt >= LIST_ACK_RETRIES) return;
+      emitWorkspacesTry(bus, attempt + 1);
+    }, LIST_ACK_TIMEOUT_MS);
   }, [applyWorkspaces]);
 
   // Coalesce list fetch triggers into a single round-trip.
@@ -341,7 +359,15 @@ export function useAgentBus() {
     else if (typeof cwd === "function") { callback = cwd; cwd = null; }
 
     const agentId = typeof agent === "string" ? agent : agent?.id || null;
+    let acked = false;
+    const ackWatch = setTimeout(() => {
+      if (acked) return;
+      termLog("diag", "createSession unanswered → refetch lists");
+      refreshLists();
+    }, CREATE_ACK_TIMEOUT_MS);
     busRef.current.emit("createSession", { name, shellId, workspaceId, cwd, nameIsAuto, agent: agentId, replaces }, (result) => {
+      acked = true;
+      clearTimeout(ackWatch);
       if (result?.success) {
         if (result.sessionId) {
           if (agentId) useTerminalStore.getState().setSessionAgent(result.sessionId, agentId);
