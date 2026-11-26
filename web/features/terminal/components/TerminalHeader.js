@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft, ChevronRight, Menu, PanelLeft, PanelRight, Monitor, Smartphone, Plus, Pencil, Trash2, X, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2, Eye, EyeOff, Columns2, Link2, Loader2
 } from "@/shared/components/ui/Icon";
@@ -40,6 +40,12 @@ import JarvisView from "@/features/jarvis/components/JarvisView";
 import { useJarvisStore } from "@/shared/stores/jarvisStore";
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { useKanbanStore } from "@/shared/stores/kanbanStore";
+import {
+  GROUP_COLORS, stripItems, createGroup, addToGroup, removeFromGroup, ungroup, updateGroup, regroupAfterDrop,
+  createSplit, separateSplit, swapSplit
+} from "@/features/terminal/lib/tabGroups";
+
+const EMPTY_GROUPS = { groups: [] };
 
 // Engines a terminal can be swapped into the chat UI.
 const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex", "opencode", "antigravity", "omp", "pi", "devin", "hermes"]);
@@ -193,14 +199,39 @@ function TerminalHeader({
     if (hiddenPaneSessionIds.includes(sessionId)) unhidePane(sessionId);
     onSwitchSession?.(sessionId);
   };
+  // Chrome-style tab groups (desktop): grouped tabs sit together behind a coloured label.
+  const groupsKey = activeWorkspaceId ?? UNGROUPED_KEY;
+  const groupsState = useTerminalStore((s) => s.tabGroupsByWs?.[groupsKey]) || EMPTY_GROUPS;
+  const setTabGroups = useTerminalStore((s) => s.setTabGroups);
+  const writeGroups = (next) => setTabGroups(groupsKey, next);
+  const [groupMenu, setGroupMenu] = useState(null);     // { groupId, x, y }
+  const [groupRename, setGroupRename] = useState(null); // { groupId, value }
+  const groupLabel = (group) => group.name || "";
+  const draggedTabRef = useRef(null);
   const { dragId, registerEl, startDrag, consumeClick } = useDragReorder({
     axis: "x",
     // Higher than the sidebar's: that has a grip to grab, a tab is its own handle, so a
     // twitch while clicking must still read as "switch to this tab".
     threshold: 12,
     onTap: selectTab,
-    onCommit: onReorderSession
+    onCommit: (orderedIds) => {
+      onReorderSession?.(orderedIds);
+      // Dropped between two tabs of a group joins it; dropped clear of its own group leaves.
+      if (isDesktop && draggedTabRef.current) {
+        const next = regroupAfterDrop(groupsStateRef.current, orderedIds, draggedTabRef.current);
+        if (next !== groupsStateRef.current) writeGroups(next);
+      }
+    }
   });
+
+  const groupsStateRef = useRef(groupsState);
+  useEffect(() => { groupsStateRef.current = groupsState; }, [groupsState]);
+  const sessionById = useMemo(() => new Map(sessions.map((x) => [x.id, x])), [sessions]);
+  const stripEntries = useMemo(
+    () => (isDesktop ? stripItems(groupsState, sessions.map((x) => x.id)) : sessions.map((x) => ({ type: "tab", id: x.id, group: null }))),
+    [isDesktop, groupsState, sessions]
+  );
+  const stripTabIds = useMemo(() => stripEntries.filter((x) => x.type === "tab").map((x) => x.id), [stripEntries]);
 
   // Every terminal that actually exists right now — a history row naming one of them
   // focuses it instead of resuming a second copy of the same conversation.
@@ -424,6 +455,115 @@ function TerminalHeader({
             });
   }, [isActive, connected, onOpenRemote, onOpenFiles, onLogout, tunnelUrl, apiKey, connectionMode, hostVersion, agentVersion, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
+  // One session tab. `group` colours its underline; `split` marks a half of a joined split tab.
+  const renderSessionTab = (sessionId, group, split) => {
+    const session = sessionById.get(sessionId);
+    if (!session) return null;
+    const groupColor = group ? GROUP_COLORS[group.color] : null;
+    const isActiveTab = session.id === activeSessionId && !isBrowserView;
+    const isHidden = hiddenPaneSessionIds.includes(session.id);
+    const st = sessionStatus[session.id]?.state || "idle";
+    const v = statusVisual(st);
+    const tabName = session.name || t("terminal.defaultName");
+    // The agent's own icon, or — for a chat UI, whose id carries a "-ui" suffix no
+    // icon file has — the engine's CLI icon.
+    const tabIcon = agentIconUrl(agentBySession[session.id]) || agentIconUrl(agentBySession[session.id]?.replace(/-ui$/, ""));
+    return (
+      <div
+        key={session.id}
+        role="button"
+        tabIndex={0}
+        ref={(el) => {
+          registerEl(session.id)(el);
+          if (isActiveTab) activeTabRef.current = el;
+        }}
+        onPointerDown={(e) => {
+          // Mouse only: on touch this strip is a horizontal scroller, and
+          // swallowing the gesture would trap it. Touch reorders in the sidebar.
+          if (e.pointerType !== "mouse" || !onReorderSession || !connected) return;
+          clearTabLongPress();
+          draggedTabRef.current = session.id;
+          startDrag(e, session.id, stripTabIds);
+        }}
+        onClick={() => {
+          if (consumeClick()) return;
+          selectTab(session.id);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (isHidden) unhidePane(session.id);
+            onSwitchSession?.(session.id);
+          }
+        }}
+        onContextMenu={(e) => handleTabContextMenu(e, session)}
+        onTouchStart={(e) => handleTabTouchStart(e, session)}
+        onTouchMove={clearTabLongPress}
+        onTouchEnd={clearTabLongPress}
+        className={`term-tab ${isDesktop ? "" : "term-tab-flat"} group relative px-1.5 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x ${
+          isActiveTab ? "term-tab-active" : ""
+        } ${isHidden ? "opacity-75 hover:opacity-100" : ""} ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
+        style={groupColor ? { boxShadow: `inset 0 -2px 0 ${groupColor}` } : undefined}
+      >
+        <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
+          {/* A quiet tab shows WHO lives here; the state dot only takes the slot when
+              there is a state worth reporting (working/blocked/done) or no icon to show. */}
+          {st === "idle" && tabIcon ? (
+            <img
+              src={tabIcon}
+              alt=""
+              draggable={false}
+              className={`w-3.5 h-3.5 object-contain ${AGENT_ICON_CLS}`}
+            />
+          ) : (
+            <span
+              className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`}
+              style={{ background: v.dot }}
+              title={t(v.label)}
+            />
+          )}
+        </div>
+        <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={tabName}>{tabName}</span>
+        {isHidden && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              vibrate();
+              unhidePane(session.id);
+            }}
+            className="p-0.5 rounded text-amber-400 hover:text-amber-300 hover:bg-amber-400/20 transition-colors flex items-center justify-center shrink-0"
+            title={t("sessions.showPanel") || "Show panel"}
+          >
+            <EyeOff size={13} />
+          </button>
+        )}
+        {/* Desktop close, right of the title like Chrome. Touch has no hover, so a
+          phone closes a terminal from the long-press menu instead. */}
+        {onDeleteSession && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              vibrate();
+              openTabDeleteConfirm(session);
+            }}
+            className={`hidden sm:flex w-4 h-4 -mr-1 p-0.5 rounded text-text-muted hover:text-text hover:bg-text/15 items-center justify-center shrink-0 transition-opacity ${isActiveTab ? "" : "sm:opacity-0 sm:group-hover:opacity-100"}`}
+            title={hint(t("sessions.deleteTitle"), "closeTerminal")}
+          >
+            <X size={11} strokeWidth={2.4} />
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={`${isDesktop ? "terminal-header-glass border-b border-border-subtle" : "terminal-header-veil"} h-9 ${PANEL_HEADER_H_CLASS} px-2 sm:pl-0 sm:pr-2 flex items-stretch gap-0 flex-shrink-0`}>
       {onToggleSidebar && sidebarCollapsed && (
@@ -452,107 +592,45 @@ function TerminalHeader({
       {/* overflow-auto whitelists this for mobile touchmove (see page.js preventScroll) */}
       <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-none h-full">
         <div className="flex gap-0 min-w-max items-stretch h-full">
-          {sessions.map((session) => {
-            const isActiveTab = session.id === activeSessionId && !isBrowserView;
-            const isHidden = hiddenPaneSessionIds.includes(session.id);
-            const st = sessionStatus[session.id]?.state || "idle";
-            const v = statusVisual(st);
-            const tabName = session.name || t("terminal.defaultName");
-            // The agent's own icon, or — for a chat UI, whose id carries a "-ui" suffix no
-            // icon file has — the engine's CLI icon.
-            const tabIcon = agentIconUrl(agentBySession[session.id]) || agentIconUrl(agentBySession[session.id]?.replace(/-ui$/, ""));
-            return (
-              <div
-                key={session.id}
-                role="button"
-                tabIndex={0}
-                ref={(el) => {
-                  registerEl(session.id)(el);
-                  if (isActiveTab) activeTabRef.current = el;
-                }}
-                onPointerDown={(e) => {
-                  // Mouse only: on touch this strip is a horizontal scroller, and
-                  // swallowing the gesture would trap it. Touch reorders in the sidebar.
-                  if (e.pointerType !== "mouse" || !onReorderSession || !connected) return;
-                  clearTabLongPress();
-                  startDrag(e, session.id, sessions.map((s) => s.id));
-                }}
-                onClick={() => {
-                  if (consumeClick()) return;
-                  selectTab(session.id);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    if (isHidden) unhidePane(session.id);
-                    onSwitchSession?.(session.id);
-                  }
-                }}
-                onContextMenu={(e) => handleTabContextMenu(e, session)}
-                onTouchStart={(e) => handleTabTouchStart(e, session)}
-                onTouchMove={clearTabLongPress}
-                onTouchEnd={clearTabLongPress}
-                className={`term-tab ${isDesktop ? "" : "term-tab-flat"} group relative px-1.5 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x ${
-                  isActiveTab ? "term-tab-active" : ""
-                } ${isHidden ? "opacity-75 hover:opacity-100" : ""} ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
-              >
-                <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
-                  {/* A quiet tab shows WHO lives here; the state dot only takes the slot when
-                      there is a state worth reporting (working/blocked/done) or no icon to show. */}
-                  {st === "idle" && tabIcon ? (
-                    <img
-                      src={tabIcon}
-                      alt=""
-                      draggable={false}
-                      className={`w-3.5 h-3.5 object-contain ${AGENT_ICON_CLS} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
-                    />
-                  ) : (
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
-                      style={{ background: v.dot }}
-                      title={t(v.label)}
-                    />
-                  )}
-                  {/* Hover-only: safe because hover is transient. Touch has no hover, so a
-                      phone closes a terminal from the long-press menu instead. */}
-                  {onDeleteSession && (
-                    <button
-                      type="button"
-                      tabIndex={-1}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        vibrate();
-                        openTabDeleteConfirm(session);
-                      }}
-                      className="hidden w-full h-full p-0.5 rounded text-text hover:bg-text/15 sm:group-hover:flex items-center justify-center transition-colors"
-                      title={hint(t("sessions.deleteTitle"), "closeTerminal")}
-                    >
-                      <X size={11} strokeWidth={2.4} />
-                    </button>
-                  )}
+          {stripEntries.map((entry) => {
+            if (entry.type === "group") {
+              const group = entry.group;
+              const color = GROUP_COLORS[group.color];
+              const label = groupLabel(group);
+              return (
+                <button
+                  key={`group:${group.id}`}
+                  type="button"
+                  onClick={() => { vibrate(); writeGroups(updateGroup(groupsState, group.id, { collapsed: !group.collapsed })); }}
+                  onContextMenu={(e) => { e.preventDefault(); setGroupMenu({ groupId: group.id, x: e.clientX, y: e.clientY }); }}
+                  className="self-center mx-1 flex items-center gap-1 h-5 rounded-[5px] text-[11px] font-semibold text-black/80 px-1.5 shrink-0"
+                  style={{ background: color, minWidth: label ? undefined : 14 }}
+                  title={group.collapsed ? t("terminal.groupExpand") : t("terminal.groupCollapse")}
+                >
+                  {label && <span className="max-w-[110px] truncate">{label}</span>}
+                  {group.collapsed && <span className="opacity-80">{group.sessionIds.length}</span>}
+                </button>
+              );
+            }
+            if (entry.type === "split") {
+              // Chrome's split view: the pair reads as one joined tab, each half its own tab.
+              const pairActive = entry.split.ids.includes(activeSessionId) && !isBrowserView;
+              return (
+                <div
+                  key={`split:${entry.split.id}`}
+                  className={`flex items-stretch h-full mx-0.5 my-0.5 rounded-[6px] border ${pairActive ? "border-brand-500/60" : "border-border-subtle"} overflow-hidden`}
+                  title={t("terminal.splitViewTitle")}
+                >
+                  {entry.split.ids.map((id, i) => (
+                    <Fragment key={id}>
+                      {i === 1 && <span className="w-px self-stretch my-1.5 bg-border" />}
+                      {renderSessionTab(id, null, entry.split)}
+                    </Fragment>
+                  ))}
                 </div>
-                <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={tabName}>{tabName}</span>
-                {isHidden && (
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      vibrate();
-                      unhidePane(session.id);
-                    }}
-                    className="p-0.5 rounded text-amber-400 hover:text-amber-300 hover:bg-amber-400/20 transition-colors flex items-center justify-center shrink-0"
-                    title={t("sessions.showPanel") || "Show panel"}
-                  >
-                    <EyeOff size={13} />
-                  </button>
-                )}
-              </div>
-            );
+              );
+            }
+            return renderSessionTab(entry.id, entry.group, null);
           })}
           {/* Real Chrome tabs only — opening a browser happens from the new-terminal
               modal's Browser button, so there is no pseudo opener tab here. */}
@@ -590,7 +668,11 @@ function TerminalHeader({
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
                   {tab.booting
                     ? <Loader2 size={13} className="w-3.5 h-3.5 animate-spin text-text-muted" />
-                    : <Globe size={13} className="w-3.5 h-3.5 text-text sm:group-hover:hidden" />}
+                    : <Globe size={13} className="w-3.5 h-3.5 text-text" />}
+                </div>
+                <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={tab.title || t("sites.browserTab")}>
+                  {tab.title || t("sites.browserTab")}
+                </span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -605,15 +687,11 @@ function TerminalHeader({
                         st.setActive(wsKey, next[0]?.id || null);
                       }
                     }}
-                    className="hidden w-full h-full p-0.5 rounded text-text hover:bg-text/15 sm:group-hover:flex items-center justify-center transition-colors"
+                    className={`hidden sm:flex w-4 h-4 -mr-1 p-0.5 rounded text-text-muted hover:text-text hover:bg-text/15 items-center justify-center shrink-0 transition-opacity ${isActive ? "" : "sm:opacity-0 sm:group-hover:opacity-100"}`}
                     title={t("common.close")}
                   >
                     <X size={11} strokeWidth={2.4} />
                   </button>
-                </div>
-                <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={tab.title || t("sites.browserTab")}>
-                  {tab.title || t("sites.browserTab")}
-                </span>
               </div>
             );
           })}
@@ -638,7 +716,11 @@ function TerminalHeader({
               data-tip={`${tab.title || "Agent tab"} (${tab.profile})`}
             >
               <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
-                <Bot size={13} className="w-3.5 h-3.5 text-brand-500 sm:group-hover:hidden" />
+                <Bot size={13} className="w-3.5 h-3.5 text-brand-500" />
+              </div>
+              <Bot size={11} className="w-3 h-3 text-brand-500 shrink-0 sm:hidden" />
+              <span className="truncate max-w-[70px] sm:max-w-[110px]">{tab.title || "Agent tab"}</span>
+              <span className="hidden sm:inline text-[9px] text-text-muted shrink-0">{tab.profile}</span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -646,15 +728,11 @@ function TerminalHeader({
                     busRef?.current?.emit?.("browser:invoke", { action: "close", payload: { targetId: tab.id, profile: tab.profile } }, () => {});
                     useBrowserStore.getState().setAgentTabs(useBrowserStore.getState().agentTabs.filter((t) => t.id !== tab.id));
                   }}
-                  className="hidden w-full h-full p-0.5 rounded text-text hover:bg-text/15 sm:group-hover:flex items-center justify-center transition-colors"
+                  className="hidden sm:flex w-4 h-4 -mr-1 p-0.5 rounded text-text-muted hover:text-text hover:bg-text/15 items-center justify-center shrink-0 transition-opacity sm:opacity-0 sm:group-hover:opacity-100"
                   title="Close"
                 >
                   <X size={11} strokeWidth={2.4} />
                 </button>
-              </div>
-              <Bot size={11} className="w-3 h-3 text-brand-500 shrink-0 sm:hidden" />
-              <span className="truncate max-w-[70px] sm:max-w-[110px]">{tab.title || "Agent tab"}</span>
-              <span className="hidden sm:inline text-[9px] text-text-muted shrink-0">{tab.profile}</span>
             </div>
           ))}
 
@@ -803,6 +881,50 @@ function TerminalHeader({
         </div>
       )}
 
+      {groupMenu && (() => {
+        const group = groupsState.groups.find((g) => g.id === groupMenu.groupId);
+        if (!group) return null;
+        const close = () => setGroupMenu(null);
+        const itemCls = "w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2";
+        return (
+          <>
+            <div className="fixed inset-0 z-[59]" onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
+            <div className="fixed z-[60] menu-popover p-1.5 min-w-[180px] pop-in" style={{ left: groupMenu.x, top: groupMenu.y }}>
+              <button className={itemCls} onClick={() => { setGroupRename({ groupId: group.id, value: group.name || "" }); close(); }}>
+                <Pencil size={13} /> {t("terminal.groupRename")}
+              </button>
+              <div className="flex flex-wrap gap-1.5 px-2.5 py-2">
+                {Object.entries(GROUP_COLORS).map(([key, hex]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-label={key}
+                    onClick={() => { vibrate(); writeGroups(updateGroup(groupsState, group.id, { color: key })); }}
+                    className={`w-4 h-4 rounded-full ${group.color === key ? "ring-2 ring-offset-1 ring-offset-surface ring-text" : ""}`}
+                    style={{ background: hex }}
+                  />
+                ))}
+              </div>
+              <button className={itemCls} onClick={() => { vibrate(); writeGroups(updateGroup(groupsState, group.id, { collapsed: !group.collapsed })); close(); }}>
+                {group.collapsed ? <Maximize2 size={13} /> : <Minimize2 size={13} />} {group.collapsed ? t("terminal.groupExpand") : t("terminal.groupCollapse")}
+              </button>
+              <button className={itemCls} onClick={() => { vibrate(); writeGroups(ungroup(groupsState, group.id)); close(); }}>
+                <X size={13} /> {t("terminal.groupUngroup")}
+              </button>
+            </div>
+          </>
+        );
+      })()}
+      {groupRename && (
+        <PromptDialog
+          title={t("terminal.groupRename")}
+          value={groupRename.value}
+          onChange={(value) => setGroupRename({ ...groupRename, value })}
+          onSubmit={() => { writeGroups(updateGroup(groupsState, groupRename.groupId, { name: groupRename.value.trim() || null })); setGroupRename(null); }}
+          onClose={() => setGroupRename(null)}
+        />
+      )}
+
       {/* Tab right-click context menu */}
       {tabMenu.sessionId && (
         <div
@@ -831,6 +953,55 @@ function TerminalHeader({
           >
             <Pencil size={13} /> {t("sessions.editName")}
           </button>
+          {isDesktop && (() => {
+            const sid = tabMenu.sessionId;
+            const own = groupsState.groups.find((g) => g.sessionIds.includes(sid));
+            const pair = (groupsState.splits || []).find((p) => p.ids.includes(sid));
+            const close = () => setTabMenu({ sessionId: null, x: 0, y: 0 });
+            const itemCls = "w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2";
+            // Split view partners for the active tab: any other tab of this workspace.
+            const partners = sid === activeSessionId ? sessions.filter((x) => x.id !== sid).slice(0, 8) : [];
+            return (
+              <>
+                {/* Split view (Chrome): two tabs side by side, shown as one joined tab. */}
+                <div className="h-px bg-border-subtle my-1" />
+                {pair ? (
+                  <>
+                    <button className={itemCls} onClick={() => { vibrate(); writeGroups(separateSplit(groupsState, pair.id)); close(); }}>
+                      <X size={13} /> {t("terminal.splitSeparate")}
+                    </button>
+                    <button className={itemCls} onClick={() => { vibrate(); writeGroups(swapSplit(groupsState, pair.id)); close(); }}>
+                      <Columns2 size={13} /> {t("terminal.splitSwap")}
+                    </button>
+                  </>
+                ) : sid !== activeSessionId && activeSessionId ? (
+                  <button className={itemCls} onClick={() => { vibrate(); writeGroups(createSplit(groupsState, activeSessionId, sid)); close(); }}>
+                    <Columns2 size={13} /> {t("terminal.splitWithCurrent")}
+                  </button>
+                ) : partners.map((x) => (
+                  <button key={x.id} className={itemCls} onClick={() => { vibrate(); writeGroups(createSplit(groupsState, sid, x.id)); close(); }}>
+                    <Columns2 size={13} /> <span className="truncate">{t("terminal.splitWith", { name: x.name || t("terminal.defaultName") })}</span>
+                  </button>
+                ))}
+                <div className="h-px bg-border-subtle my-1" />
+                <button className={itemCls} onClick={() => { vibrate(); writeGroups(createGroup(groupsState, sid)); close(); }}>
+                  <Plus size={13} /> {t("terminal.groupAddNew")}
+                </button>
+                {groupsState.groups.filter((g) => g.id !== own?.id).map((g) => (
+                  <button key={g.id} className={itemCls} onClick={() => { vibrate(); writeGroups(addToGroup(groupsState, sid, g.id)); close(); }}>
+                    <span className="w-3 h-3 rounded-full shrink-0" style={{ background: GROUP_COLORS[g.color] }} />
+                    <span className="truncate">{t("terminal.groupAddTo", { name: groupLabel(g) || t("terminal.groupUnnamed") })}</span>
+                  </button>
+                ))}
+                {own && (
+                  <button className={itemCls} onClick={() => { vibrate(); writeGroups(removeFromGroup(groupsState, sid)); close(); }}>
+                    <X size={13} /> {t("terminal.groupRemoveFrom")}
+                  </button>
+                )}
+                <div className="h-px bg-border-subtle my-1" />
+              </>
+            );
+          })()}
           {isDesktop && (
             <div className="relative group/split">
               <button
@@ -883,51 +1054,12 @@ function TerminalHeader({
                   onClick={() => {
                     vibrate();
                     if (fullMode) setFullMode(activeWorkspaceId, false);
-                    window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 2 } }));
-                    setTabMenu({ sessionId: null, x: 0, y: 0 });
-                  }}
-                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
-                >
-                  <span>1/2</span>
-                  <span className="text-[10px] text-text-muted">50%</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    vibrate();
-                    if (fullMode) setFullMode(activeWorkspaceId, false);
-                    window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 3 } }));
-                    setTabMenu({ sessionId: null, x: 0, y: 0 });
-                  }}
-                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
-                >
-                  <span>1/3</span>
-                  <span className="text-[10px] text-text-muted">33%</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    vibrate();
-                    if (fullMode) setFullMode(activeWorkspaceId, false);
-                    window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 4 } }));
-                    setTabMenu({ sessionId: null, x: 0, y: 0 });
-                  }}
-                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
-                >
-                  <span>1/4</span>
-                  <span className="text-[10px] text-text-muted">25%</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    vibrate();
-                    if (fullMode) setFullMode(activeWorkspaceId, false);
                     window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: "auto" } }));
                     setTabMenu({ sessionId: null, x: 0, y: 0 });
                   }}
                   className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
                 >
-                  <span>Auto Fit</span>
+                  <span>{t("terminal.viewTabEqualize")}</span>
                   <span className="text-[10px] text-text-muted">Auto</span>
                 </button>
                 <div className="h-px bg-border-subtle my-1" />

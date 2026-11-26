@@ -55,6 +55,10 @@ export const createLayoutSlice = (set, get) => ({
     hiddenPaneSessionIds: state.hiddenPaneSessionIds.filter((id) => id !== sessionId)
   })),
 
+  // Desktop tab groups per workspace key (features/terminal/lib/tabGroups.js), kept per browser.
+  tabGroupsByWs: {},
+  setTabGroups: (wsKey, value) => set((state) => ({ tabGroupsByWs: { ...state.tabGroupsByWs, [wsKey]: value } })),
+
   // Pane width per workspace (px). null/missing = auto
   paneWidths: {},
   setPaneWidth: (workspaceId, w) => set((state) => ({

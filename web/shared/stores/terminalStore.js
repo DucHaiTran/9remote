@@ -62,6 +62,7 @@ export const useTerminalStore = create(
         fullMode: state.fullMode,
         hiddenPaneSessionIds: state.hiddenPaneSessionIds || [],
         paneWidths: state.paneWidths,
+        tabGroupsByWs: state.tabGroupsByWs || {},
         rightPanelOpen: state.rightPanelOpen,
         rightPanelTabs: state.rightPanelTabs,
         rightPanelWidth: state.rightPanelWidth,

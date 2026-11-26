@@ -7,9 +7,8 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFleetStore } from "@/shared/stores/fleetStore";
 import { connOf, connForSession, useSessionStatus } from "@/shared/transport/hostConn";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
-import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
-import { derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth, UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
-import { startWidthDrag } from "@/shared/utils/dragResize";
+import { PANE_WIDTH, PANE_GAP_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
+import { derivePaneLayout, mountDelayFor, sessionWorkspaceId, UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
@@ -26,6 +25,7 @@ import TerminalEditorPanel from "@/features/terminal/components/TerminalEditorPa
 import OverflowTip from "@/shared/components/ui/OverflowTip";
 import TerminalBeam from "@/shared/components/ui/TerminalBeam";
 import TerminalEmptyState from "@/features/terminal/components/TerminalEmptyState";
+import { normalizeTabGroups, sameTabGroups, groupOfSession, splitOfSession, updateGroup, updateSplit, weightsFromWidths } from "@/features/terminal/lib/tabGroups";
 import AiPaneView from "@/features/ai/components/AiPaneView";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import ErrorBoundary from "@/shared/components/ui/ErrorBoundary";
@@ -346,20 +346,46 @@ function TerminalWorkspace({
     () => workspaceOpenedSessions.filter((id) => !hiddenPaneSessionIds.includes(id)),
     [workspaceOpenedSessions, hiddenPaneSessionIds]
   );
-  const paneCount = visibleWorkspaceSessions.length;
+
+  // ---- Tab groups (desktop, Chrome style) ----
+  // A tab shows alone; picking a tab that is in a group shows the whole group side by side.
+  const groupsKey = activeWorkspaceId ?? UNGROUPED_KEY;
+  const storedGroups = useTerminalStore((s) => s.tabGroupsByWs?.[groupsKey]);
+  const setTabGroups = useTerminalStore((s) => s.setTabGroups);
+  const addOpenedSession = useTerminalStore((s) => s.addOpenedSession);
+  const workspaceSessionIdList = useMemo(() => workspaceSessions.map((x) => x.id), [workspaceSessions]);
+  const tabGroups = useMemo(
+    () => normalizeTabGroups(storedGroups, workspaceSessionIdList),
+    [storedGroups, workspaceSessionIdList]
+  );
+  useEffect(() => {
+    if (isDesktop && !sameTabGroups(tabGroups, storedGroups)) setTabGroups(groupsKey, tabGroups);
+  }, [isDesktop, tabGroups, storedGroups, setTabGroups, groupsKey]);
+
+  // A split view (two tabs joined) wins over a group: the pair is what the user asked to see.
+  const activeSplit = isDesktop && activeSessionId ? splitOfSession(tabGroups, activeSessionId) : null;
+  const activeGroup = isDesktop && activeSessionId && !activeSplit ? groupOfSession(tabGroups, activeSessionId) : null;
+  // The other half / the group's other tabs get their panes opened too, so all of it shows.
+  useEffect(() => {
+    (activeSplit?.ids || activeGroup?.sessionIds || []).forEach((id) => addOpenedSession(id));
+  }, [activeSplit, activeGroup, addOpenedSession]);
+  // The panes on screen, in order: the active tab's split pair, its group, or the tab alone.
+  const tabPaneIds = useMemo(() => {
+    if (activeSplit) return activeSplit.ids;
+    if (!activeGroup) return activeSessionId ? [activeSessionId] : [];
+    return activeGroup.sessionIds.filter((id) => !hiddenPaneSessionIds.includes(id) || id === activeSessionId);
+  }, [activeSplit, activeGroup, activeSessionId, hiddenPaneSessionIds]);
+  const paneWeights = (activeSplit || activeGroup)?.weights || {};
+
+  const setTabWeights = useCallback((weights) => {
+    if (activeSplit) setTabGroups(groupsKey, updateSplit(tabGroups, activeSplit.id, { weights }));
+    else if (activeGroup) setTabGroups(groupsKey, updateGroup(tabGroups, activeGroup.id, { weights }));
+  }, [activeSplit, activeGroup, setTabGroups, groupsKey, tabGroups]);
   // The side panels' own widths, not the row's: the row spans sidebar + panes + panels and
   // does not change when one toggles, so the deduction has to come from here.
   const sideWidth = (rightPanel?.open && expanded ? rightPanel.width : 0)
     + (editorOpen && editorExpanded ? editorPanel.width : 0)
     + (mobilePanel?.open && mobilePanel.mode === "pin" ? mobilePanel.width : 0);
-  const autoWidth = autoFitPaneWidth({
-    // A collapsed sidebar renders at 0 inside the row (rowWidth never changes), so the
-    // deduction must follow its live width or the fit reserves space for a hidden panel.
-    rowWidth, paneCount, sidebarWidth: sidebarCollapsed ? 0 : sidebarWidth, sidePx: sideWidth,
-    gapPx: PANE_GAP_PX, paddingPx: PANE_ROW_PADDING_PX, minWidth: PANE_WIDTH.min
-  });
-
-  const effectivePaneWidth = paneWidth ?? autoWidth;
 
   // A side panel narrows the panes to fit, but a pinned (non-auto) row keeps its width and
   // scrolls instead — its scrollLeft doesn't follow, so the focused pane can slide out of
@@ -386,19 +412,42 @@ function TerminalWorkspace({
 
   // One width shared by every pane: dragging any splitter resizes the whole row at once,
   // so the panes stay a uniform grid instead of drifting into ragged columns.
-  const startPaneResize = (e) => {
-    // Dragging out of auto mode pins the row at the pane's current rendered width first.
-    const startWidth = effectivePaneWidth ?? e.currentTarget.parentElement?.offsetWidth ?? PANE_WIDTH.min;
+  // Panes share the row by weight (VS Code style), so they always fill it. A splitter trades
+  // width between its pane and the next one only; the others keep theirs.
+  const paneElsRef = useRef(new Map());
+  const startPaneResize = (e, sessionId, nextId) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    const ids = tabPaneIds;
+    const widths = Object.fromEntries(ids.map((id) => [id, paneElsRef.current.get(id)?.offsetWidth || PANE_WIDTH.min]));
+    const pair = widths[sessionId] + widths[nextId];
+    const startX = e.clientX;
+    let frame = null;
+    let lastX = startX;
     setIsPaneResizing(true);
-    startWidthDrag(e, {
-      startWidth,
-      onWidth: (w) => setPaneWidth?.(w),
-      onEnd: () => setIsPaneResizing(false)
-    });
+    const apply = () => {
+      frame = null;
+      const left = Math.max(PANE_WIDTH.min, Math.min(pair - PANE_WIDTH.min, widths[sessionId] + lastX - startX));
+      setTabWeights(weightsFromWidths({ ...widths, [sessionId]: left, [nextId]: pair - left }));
+    };
+    const onMove = (ev) => { lastX = ev.clientX; if (!frame) frame = requestAnimationFrame(apply); };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (frame) cancelAnimationFrame(frame);
+      setIsPaneResizing(false);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
-  // Double-click or shortcut: back to the computed fit, dropping any pinned width.
-  const fitPaneWidth = useCallback(() => setPaneWidth?.(null), [setPaneWidth]);
+  // Double-click, menu or shortcut: equal widths again (also drops the old pinned px width).
+  const fitPaneWidth = useCallback(() => {
+    setPaneWidth?.(null);
+    setTabWeights({});
+  }, [setPaneWidth, setTabWeights]);
 
   const [splitterMenu, setSplitterMenu] = useState(null);
   const splitterMenuRef = useRef(null);
@@ -411,7 +460,7 @@ function TerminalWorkspace({
   }, []);
 
   const applySplitPreset = useCallback((fraction) => {
-    if (fraction === "auto") {
+    if (fraction === "auto" || isDesktop) {
       fitPaneWidth();
     } else {
       const containerWidth = panesContainerRef.current?.clientWidth
@@ -425,7 +474,7 @@ function TerminalWorkspace({
       }
     }
     setSplitterMenu(null);
-  }, [fitPaneWidth, panesContainerRef, rowWidth, sidebarCollapsed, sidebarWidth, sideWidth, setPaneWidth]);
+  }, [fitPaneWidth, isDesktop, panesContainerRef, rowWidth, sidebarCollapsed, sidebarWidth, sideWidth, setPaneWidth]);
 
   useEffect(() => {
     if (!splitterMenu) return;
@@ -725,7 +774,10 @@ function TerminalWorkspace({
               const inActiveWorkspace = workspaceSessionIds.has(sessionId);
               const isFocused = sessionId === activeSessionId;
               const isHidden = hiddenPaneSessionIds.includes(sessionId);
-              const isVisible = inActiveWorkspace && !isHidden && (isDesktop ? (!fullMode || isFocused) : isFocused);
+              const tabSlot = tabPaneIds.indexOf(sessionId);
+              const inActiveTab = !isDesktop || tabSlot !== -1;
+              const isVisible = inActiveWorkspace && !isHidden && (isDesktop ? (inActiveTab && (!fullMode || isFocused)) : isFocused);
+              const nextInTab = tabSlot !== -1 ? tabPaneIds[tabSlot + 1] : undefined;
               // This pane's machine is restarting for a self-update: the wire is
               // about to die, so the pane goes read-only until it reports back.
               const hostUpdating = !!fleetHosts[connForSession(sessionId).head || currentKey]?.updating;
@@ -735,12 +787,16 @@ function TerminalWorkspace({
               return (
                 <div
                   key={sessionId}
-                  ref={(el) => registerPaneElement(sessionId, el)}
+                  ref={(el) => {
+                    registerPaneElement(sessionId, el);
+                    if (el) paneElsRef.current.set(sessionId, el);
+                    else paneElsRef.current.delete(sessionId);
+                  }}
                   className={
-                    browserOnTop || !inActiveWorkspace || (isDesktop && fullMode && !isFocused) || (isDesktop && isHidden)
+                    browserOnTop || !inActiveWorkspace || (isDesktop && fullMode && !isFocused) || (isDesktop && (isHidden || !inActiveTab))
                       ? "hidden"
                       : isDesktop
-                      ? `h-full relative bg-bg ${hostUpdating ? "opacity-50 pointer-events-none" : ""} ${fullMode ? "w-full flex-1" : `border-r-2 border-border-subtle last:border-r-0 ${isPaneResizing ? "" : "transition-[width] duration-200 ease-out"}`}`
+                      ? `h-full relative bg-bg ${hostUpdating ? "opacity-50 pointer-events-none" : ""} ${fullMode ? "w-full flex-1" : `${nextInTab ? "border-r-2 border-border-subtle" : ""} ${isPaneResizing ? "select-none" : ""}`}`
                       : `absolute inset-0 ${hostUpdating ? "opacity-50 pointer-events-none" : isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
                   }
                   // Explicit px width (pinned or computed auto) so every width change —
@@ -750,9 +806,7 @@ function TerminalWorkspace({
                   style={inActiveWorkspace && isDesktop
                     ? (fullMode
                       ? { width: "100%", flex: "1 1 0" }
-                      : (effectivePaneWidth != null
-                        ? { width: effectivePaneWidth, flexShrink: 0 }
-                        : { flex: "1 1 0", minWidth: PANE_WIDTH.min }))
+                      : { flex: `${paneWeights[sessionId] ?? 1} 1 0`, minWidth: PANE_WIDTH.min, order: tabSlot })
                     : undefined}
                 >
                   {!mountedSet.has(sessionId) ? (
@@ -794,10 +848,10 @@ function TerminalWorkspace({
                     </>
                   ) : renderPane(sessionId, isVisible, isFocused, bgIndex)}
 
-                  {/* Splitter — drags the one shared width; double-click returns to auto-fit. */}
-                  {inActiveWorkspace && isDesktop && !fullMode && !isHidden && (
+                  {/* Splitter — trades width with the next pane; double-click evens the tab out. */}
+                  {inActiveWorkspace && isDesktop && !fullMode && !isHidden && nextInTab && (
                     <div
-                      onPointerDown={startPaneResize}
+                      onPointerDown={(e) => startPaneResize(e, sessionId, nextInTab)}
                       onDoubleClick={fitPaneWidth}
                       onContextMenu={handleSplitterContextMenu}
                       className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-500/40 transition-colors z-30"
@@ -944,32 +998,8 @@ function TerminalWorkspace({
             onClick={() => { vibrate(); applySplitPreset("auto"); }}
             className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
           >
-            <span>Auto Fit</span>
+            <span>{t("terminal.viewTabEqualize")}</span>
             <span className="text-[10px] text-text-muted">Auto</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { vibrate(); applySplitPreset(2); }}
-            className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
-          >
-            <span>1/2</span>
-            <span className="text-[10px] text-text-muted">50%</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { vibrate(); applySplitPreset(3); }}
-            className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
-          >
-            <span>1/3</span>
-            <span className="text-[10px] text-text-muted">33%</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => { vibrate(); applySplitPreset(4); }}
-            className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
-          >
-            <span>1/4</span>
-            <span className="text-[10px] text-text-muted">25%</span>
           </button>
         </div>
       )}
