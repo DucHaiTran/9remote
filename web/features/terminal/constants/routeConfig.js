@@ -10,7 +10,7 @@ export const VIEW_TO_PATH = {
   terminal: (v) => `${WORKSPACE_BASE}/terminal/${encodeURIComponent(v.sessionId || "")}`,
   files: (v) => withQuery(`${WORKSPACE_BASE}/files`, { ws: v.workspace, p: v.currentPath }),
   editor: (v) => withQuery(`${WORKSPACE_BASE}/editor`, { path: v.path, line: v.line, col: v.column }),
-  git: (v) => withQuery(`${WORKSPACE_BASE}/git`, { ws: v.workspace }),
+  git: (v) => withQuery(`${WORKSPACE_BASE}/git`, { ws: v.workspace, host: v.hostKey || undefined }),
   remote: () => `${WORKSPACE_BASE}/remote`,
   mobile: () => `${WORKSPACE_BASE}/mobile`,
   workspaces: () => `${WORKSPACE_BASE}/workspaces`,
@@ -73,7 +73,7 @@ export function pathToView(pathname, searchParams) {
     case "terminal": return { type, sessionId: idPart ? decodeURIComponent(idPart) : undefined };
     case "files": return { type, workspace: q("ws"), currentPath: q("p") };
     case "editor": return { type, path: q("path"), line: numOrUndef(q("line")), column: numOrUndef(q("col")) };
-    case "git": return { type, workspace: q("ws") };
+    case "git": return { type, workspace: q("ws"), hostKey: q("host") || null };
     case "browse": return { type, path: q("path") };
     default: return { type };
   }

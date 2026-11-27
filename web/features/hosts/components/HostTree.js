@@ -34,7 +34,7 @@ import HostTreeRow from "./HostTreeRow";
 import SessionTaskRows from "@/features/ai/components/SessionTaskRows";
 import HostUpdateProgress from "./HostUpdateProgress";
 import HostApprovalNotice from "./HostApprovalNotice";
-import { hostTree } from "../lib/fleetTree";
+import { hostTree, scopedWsId } from "../lib/fleetTree";
 
 /**
  * ONE tree per host — the main host's and every other host's render through this.
@@ -324,7 +324,13 @@ export default function HostTree({
                   onSelect={actions.selectWorkspace ? () => { vibrate(); actions.selectWorkspace(rawId); } : null}
                   onNewTerminal={actions.createSession ? () => { setTermModalTab("new"); setTermModalWs(wsKey); } : null}
                   onOpenHistory={onResumeAgentSession && workspace?.path ? () => { setTermModalTab("history"); setTermModalWs(wsKey); } : null}
-                  onOpenGraph={!fleetConn && workspace?.path ? () => openGitGraph({ workspaceId: rawId, workspacePath: workspace.path }) : null}
+                  onOpenGraph={workspace?.path ? () => openGitGraph({
+                    // Another host's workspace is listed under its scoped id, and its git
+                    // calls must go to that machine.
+                    workspaceId: fleetConn ? scopedWsId(host.key, rawId ?? "_") : rawId,
+                    workspacePath: workspace.path,
+                    hostKey: fleetConn ? host.key : null
+                  }) : null}
                   onAddWorkspace={menuAddWorkspace}
                   onRename={actions.renameWorkspace && rawId != null ? () => setWsRename({ id: rawId, value: workspace.name, folder: workspaceFolderName(workspace) }) : null}
                   onDelete={actions.deleteWorkspace && rawId != null ? () => setWsDelete({ id: rawId, name: workspace.name }) : null}

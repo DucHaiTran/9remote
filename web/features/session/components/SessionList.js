@@ -36,7 +36,7 @@ export default function SessionList({
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
   onOpenRemoteHost = null,
   onOpenMobileHost = null,
-  fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession, onReorderWorkspaces = null,
+  fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession, onReorderWorkspaces = null, onResumeAgentSessionOnHost = null,
   onRenameHost = null, onDeleteHost = null, onMainDisconnect = null, onMainReconnect = null
 }) {
   const { t } = useI18n();
@@ -241,6 +241,7 @@ export default function SessionList({
                 <HostTree
                   mobile
                   host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
+                  onResumeAgentSession={onResumeAgentSessionOnHost ? (row) => onResumeAgentSessionOnHost(row, h.key) : null}
                   actions={{
                     ...makeFleetActions(h, { onSelectSession: onSelect }),
                     renameHost: onRenameHost,

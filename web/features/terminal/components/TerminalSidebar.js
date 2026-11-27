@@ -78,6 +78,7 @@ function TerminalSidebar({
   onResize,
   onCollapse,
   onResumeAgentSession,
+  onResumeAgentSessionOnHost = null,
 }) {
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
@@ -332,6 +333,7 @@ function TerminalSidebar({
           ) : (
             <HostTree
               host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
+              onResumeAgentSession={onResumeAgentSessionOnHost ? (row) => onResumeAgentSessionOnHost(row, h.key) : null}
               actions={{
                 ...makeFleetActions(h, { onSelectSession, onSelectWorkspace }),
                 renameHost: onRenameHost,

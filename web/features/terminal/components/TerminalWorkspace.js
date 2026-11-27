@@ -128,9 +128,12 @@ function TerminalWorkspace({
   const activeFileBus = fileBus || useFileBusStore.getState();
   // The side panels (Files/Git/worktrees) follow the FOCUSED pane's host: a foreign
   // terminal must list ITS machine's disk, not the main connection's.
+  // A workspace of another host opened with no terminal there (its Graph button) still
+  // reads that host: the active workspace's machine wins, then the focused pane's.
+  const panelsHostKey = workspaces.find((w) => w.id === activeWorkspaceId)?.hostKey || activeSession?.hostKey || null;
   const panelsFileBus = useMemo(
-    () => (activeSession?.hostKey ? connOf(activeSession.hostKey).fileBus : activeFileBus),
-    [activeSession?.hostKey, activeFileBus]
+    () => (panelsHostKey ? connOf(panelsHostKey).fileBus : activeFileBus),
+    [panelsHostKey, activeFileBus]
   );
 
   const {
@@ -629,6 +632,7 @@ function TerminalWorkspace({
               onSelectWorkspace={nav.handleSelectWorkspace}
               onCreateNamedSession={nav.handleCreateSession}
               onResumeAgentSession={activeSessionForeign ? onResumeAgentSessionForeign : nav.handleResumeAgentSession}
+              onResumeAgentSessionOnHost={onResumeAgentSessionForeign}
               shells={shells}
               onRenameSession={nav.handleRenameSession}
               onDeleteSession={nav.handleDeleteSession}
