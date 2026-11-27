@@ -296,6 +296,8 @@ function TerminalSidebar({
                 onConnect: onMainReconnect
               }}
               busRef={busRef}
+              // Enables each workspace row's History button (past conversations, no terminal needed).
+              onResumeAgentSession={onResumeAgentSession}
               actions={{
                 selectSession: (sid) => { if (hiddenPaneSessionIds.includes(sid)) unhidePane(sid); onSelectSession?.(sid); },
                 selectWorkspace: (wsId) => { vibrate(); onSelectWorkspace?.(wsId); },
