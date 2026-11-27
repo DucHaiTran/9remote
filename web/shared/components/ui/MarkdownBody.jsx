@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useRef, useState } from "react";
+import { Children, isValidElement, memo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "@/shared/components/ui/Icon";
@@ -22,6 +22,34 @@ const tag = (Tag, baseClass) =>
       </Tag>
     );
   };
+
+// The rendered table's header and body cells, read back from the element tree react-markdown
+// built (each cell element still carries its hast `node`), for the narrow list layout.
+function tableCells(children) {
+  const headers = [];
+  const rows = [];
+  const walk = (nodes, row) => {
+    Children.forEach(nodes, (el) => {
+      if (!isValidElement(el)) return;
+      const tagName = el.props?.node?.tagName || (typeof el.type === "string" ? el.type : null);
+      if (tagName === "tr") {
+        const cells = [];
+        walk(el.props.children, cells);
+        if (cells.isHeader) headers.push(...cells);
+        else if (cells.length) rows.push(cells);
+        return;
+      }
+      if (tagName === "th" || tagName === "td") {
+        if (tagName === "th") row.isHeader = true;
+        row.push(el.props.children);
+        return;
+      }
+      walk(el.props?.children, row);
+    });
+  };
+  walk(children, null);
+  return { headers, rows };
+}
 
 export const MARKDOWN_COMPONENTS = {
   h1: tag("h1", "text-xl sm:text-2xl font-bold border-b border-border-subtle pb-2 mt-5 mb-3 text-text first:mt-0"),
@@ -56,15 +84,32 @@ export const MARKDOWN_COMPONENTS = {
       {children}
     </a>
   ),
-  // w-max sizes columns to their content so cells don't wrap word-by-word; min-w-full
-  // keeps a small table full width, and the wrapper scrolls when the table is wider.
-  table: ({ children, node: _node, ...props }) => (
-    <div className="my-3 overflow-x-auto custom-scrollbar">
-      <table className="w-max min-w-full table-auto border-collapse border border-border-subtle text-xs" {...props}>
-        {children}
-      </table>
-    </div>
-  ),
+  // Never a sideways scroll: the table takes the column's width and its cells wrap. Where
+  // the column is too narrow for columns at all (a phone, a split pane), the same rows show
+  // as a list instead — first cell as the item, the rest as "header: value" under it.
+  table: ({ children, node: _node, ...props }) => {
+    const { headers, rows } = tableCells(children);
+    return (
+      <div className="my-3 @container">
+        <table className="hidden @md:table w-full table-auto border-collapse border border-border-subtle text-xs" {...props}>
+          {children}
+        </table>
+        <div className="@md:hidden space-y-1.5 text-sm">
+          {rows.map((row, r) => (
+            <div key={r} className="rounded border border-border-subtle px-2.5 py-1.5">
+              <div className="font-semibold text-text wrap-anywhere">{row[0]}</div>
+              {row.slice(1).map((cell, c) => (
+                <div key={c} className="text-text wrap-anywhere leading-relaxed">
+                  {headers[c + 1] && <span className="text-text-muted">{headers[c + 1]}: </span>}
+                  {cell}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  },
   pre: function PreBlock({ children, node: _node, ...props }) {
     const [copied, setCopied] = useState(false);
     const ref = useRef(null);
