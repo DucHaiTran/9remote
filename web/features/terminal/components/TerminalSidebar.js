@@ -78,6 +78,7 @@ function TerminalSidebar({
   onResize,
   onCollapse,
   onResumeAgentSession,
+  onResumeAgentSessionOnHost = null,
 }) {
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
@@ -296,6 +297,8 @@ function TerminalSidebar({
                 onConnect: onMainReconnect
               }}
               busRef={busRef}
+              // Enables each workspace row's History button (past conversations, no terminal needed).
+              onResumeAgentSession={onResumeAgentSession}
               actions={{
                 selectSession: (sid) => { if (hiddenPaneSessionIds.includes(sid)) unhidePane(sid); onSelectSession?.(sid); },
                 selectWorkspace: (wsId) => { vibrate(); onSelectWorkspace?.(wsId); },
@@ -330,6 +333,7 @@ function TerminalSidebar({
           ) : (
             <HostTree
               host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
+              onResumeAgentSession={onResumeAgentSessionOnHost ? (row) => onResumeAgentSessionOnHost(row, h.key) : null}
               actions={{
                 ...makeFleetActions(h, { onSelectSession, onSelectWorkspace }),
                 renameHost: onRenameHost,

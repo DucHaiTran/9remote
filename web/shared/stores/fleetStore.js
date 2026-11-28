@@ -66,7 +66,13 @@ const patchRow = (head, p) => useFleetStore.getState()._patchHost(head, p);
 // listeners bind once; later connects just refetch.
 const refetch = (bus, head) => {
   bus?.emit("getSessions", (list) => {
-    if (Array.isArray(list)) patchRow(head, { sessions: list });
+    if (!Array.isArray(list)) return;
+    // Same as the main host's list: the host knows each session's agent, and a browser
+    // that did not create the session needs it to pick the pane (a chat UI showed as a
+    // terminal on every device but the one that made it).
+    const { setSessionAgent } = useTerminalStore.getState();
+    for (const s of list) if (s?.id && s?.agent) setSessionAgent(s.id, s.agent);
+    patchRow(head, { sessions: list });
   });
   bus?.emit("getWorkspaces", (list) => { if (Array.isArray(list)) patchRow(head, { workspaces: list }); });
   bus?.emit("getStatusState");

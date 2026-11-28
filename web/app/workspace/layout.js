@@ -490,11 +490,12 @@ export default function WorkspaceLayout({ children }) {
   // Resume a past conversation on whichever host owns the active terminal — the
   // sidebar's history panel follows the focused pane across machines. Mirrors
   // nav.handleResumeAgentSession's post-flow (startup line, agent pin, claim).
-  const resumeAgentSessionOnHost = useCallback((row) => {
-    // The host is the ACTIVE pane's, not necessarily the active workspace's — the
-    // New-terminal modal can sit on one host's workspace while another's terminal
-    // is focused. The active workspace is the fallback (no session focused yet).
-    const hostKey = allSessions.find((s) => s.id === activeSessionId)?.hostKey
+  const resumeAgentSessionOnHost = useCallback((row, forHost = null) => {
+    // A host tree's History names its host (forHost). Otherwise the host is the ACTIVE
+    // pane's, not necessarily the active workspace's — the New-terminal modal can sit on
+    // one host's workspace while another's terminal is focused. The active workspace is
+    // the fallback (no session focused yet).
+    const hostKey = forHost || allSessions.find((s) => s.id === activeSessionId)?.hostKey
       || allWorkspaces.find((w) => w.id === activeWorkspaceId)?.hostKey;
     if (!hostKey || !row?.resume) return;
     const host = useFleetStore.getState().hosts[hostKey];
@@ -505,7 +506,10 @@ export default function WorkspaceLayout({ children }) {
     const agentId = asUi ? `${row.agent}-ui` : row.agent;
     // row.cwd is where the conversation lived on THAT machine — the workspace id
     // only supplies grouping, never the directory to run in.
-    const rawWs = rawWsIdOf(activeWorkspaceId, hostKey);
+    // Grouped under the active workspace when it is on that host, else under the host's
+    // workspace whose folder holds the conversation.
+    const holder = forHost && row.cwd ? (host.workspaces || []).find((w) => w.path && (row.cwd === w.path || row.cwd.startsWith(`${w.path}/`) || row.cwd.startsWith(`${w.path}\\`))) : null;
+    const rawWs = rawWsIdOf(activeWorkspaceId, hostKey) || holder?.id || null;
     makeFleetActions(host, { onSelectSession: nav.handleSelectSession })
       .createSession(null, rawWs && rawWs !== "_" ? rawWs : null, null, row.cwd || null, null, false, false, (result) => {
         if (!result?.success || !result.sessionId) return;
@@ -1100,6 +1104,7 @@ export default function WorkspaceLayout({ children }) {
             onDelete={nav.handleDeleteSession}
             onRename={nav.handleRenameSession}
             onResumeAgentSession={nav.handleResumeAgentSession}
+            onResumeAgentSessionOnHost={resumeAgentSessionOnHost}
             onLogout={handleLogoutWithConfirm}
             onOpenRemote={remoteEntry}
             onOpenRemoteHost={handleOpenRemote}
@@ -1401,7 +1406,7 @@ export default function WorkspaceLayout({ children }) {
             <GitPanel
               workspace={currentView.workspace}
               initialTab={currentView.tab}
-              fileBus={fileBus}
+              fileBus={currentView.hostKey ? connOf(currentView.hostKey).fileBus : fileBus}
               onBack={popView}
               onOpenFile={handleOpenFile}
             />
