@@ -325,9 +325,10 @@ function startViteDev() {
   const viteConfigPath = join(__dirname, "vite.config.js");
   if (!existsSync(viteConfigPath)) return;
   reapOrphanVite(viteConfigPath);
-  const viteBin = existsSync(join(__dirname, "node_modules", ".bin", "vite"))
-    ? join(__dirname, "node_modules", ".bin", "vite")
-    : join(__dirname, "..", "node_modules", ".bin", "vite");
+  // Real JS entry, not .bin/vite: on Windows that is a sh shim node cannot run
+  const viteBin = existsSync(join(__dirname, "node_modules", "vite", "bin", "vite.js"))
+    ? join(__dirname, "node_modules", "vite", "bin", "vite.js")
+    : join(__dirname, "..", "node_modules", "vite", "bin", "vite.js");
   viteProcess = spawn("node", [viteBin, "--config", viteConfigPath], {
     cwd: __dirname,
     stdio: "ignore",
