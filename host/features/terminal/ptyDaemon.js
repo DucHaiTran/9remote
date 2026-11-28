@@ -197,6 +197,8 @@ function createProc(procId, { bin, args = [], cwd, env, windowsVerbatimArguments
     env: procEnv,
     // Own session/group: stopping a CLI can then signal the whole tree like a closed terminal.
     detached: process.platform !== "win32",
+    // The daemon has no console, so Windows would give each CLI a visible one that kills it when closed.
+    windowsHide: true,
     // Windows .cmd shims arrive pre-escaped for cmd.exe (rewritten at the client
     // door via cross-spawn) — Node must not quote them a second time.
     windowsVerbatimArguments: windowsVerbatimArguments === true
